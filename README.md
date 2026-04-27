@@ -316,5 +316,3 @@ If you use this tool with the BatteryLife dataset in your research, please cite:
   series    = {KDD '25}
 }
 ```
-
-Tan et al., *BatteryLife: A Comprehensive Dataset and Benchmark for Battery Life Prediction*, KDD '25, Toronto, Canada.
