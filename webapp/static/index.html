@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Battery AI Analyzer</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <header class="brand">
+        <div>
+          <h1>Battery AI Analyzer</h1>
+          <p>BatteryML PKL browser and plot viewer</p>
+          <p class="brand-credit">Design by CuongFX</p>
+        </div>
+      </header>
+
+      <section class="panel">
+        <div class="panel-title">Data source</div>
+        <div class="folder-btn-row">
+          <button type="button" id="pickFolder">Choose folder</button>
+          <button type="button" id="btnStartLoad" class="btn-start-load" disabled>Start load</button>
+        </div>
+        <div class="folder-path" id="folderPath">No folder selected</div>
+        <div id="startLoadWrap" hidden></div>
+
+        <div class="loading" id="browseLoading" hidden>
+          <div class="spinner"></div><span>Loading folder...</span>
+        </div>
+        <div class="loading cache-loading" id="cacheLoading" hidden>
+          <div class="spinner"></div><span id="cacheStatus">Caching cycle information...</span>
+        </div>
+        <div class="browser" id="browser" hidden></div>
+        <div class="status">
+          <span class="dot" id="loadDot"></span>
+          <span id="loadText">No file loaded</span>
+        </div>
+        <p class="err" id="loadErr" hidden></p>
+      </section>
+
+      <section class="panel cache-panel">
+        <div class="panel-title">Folder cache</div>
+        <div class="cache-status-row">
+          <span id="cacheCountLabel">No folders cached</span>
+        </div>
+        <button type="button" id="btnPreCacheAll" class="cache-btn-full" disabled>Cache all folders</button>
+        <div class="cache-io-row">
+          <button type="button" id="btnExportCache" class="secondary small" disabled>Export JSON</button>
+          <button type="button" id="btnImportCache" class="secondary small">Import JSON</button>
+          <button type="button" id="btnClearCache" class="secondary small btn-danger" disabled>Clear</button>
+        </div>
+        <div class="loading inline-loading" id="preCacheLoading" hidden>
+          <div class="spinner"></div><span id="preCacheStatus">Pre-caching...</span>
+        </div>
+        <input type="file" id="importCacheInput" accept=".json" hidden />
+      </section>
+
+    </aside>
+
+    <main class="workspace">
+      <nav class="tabs" aria-label="Workspace views">
+        <button type="button" class="tab active" data-tab="general">General inspection</button>
+        <button type="button" class="tab" data-tab="deep">Analyse</button>
+      </nav>
+
+      <section class="tab-panel active" id="generalPanel">
+        <section class="inspection-toolbar">
+          <div>
+            <p class="eyebrow">Folder overview</p>
+            <h2>General inspection</h2>
+          </div>
+          <div class="inspection-target-group">
+            <div class="inspection-target" id="folderInspectTarget">Click a subfolder on the left</div>
+            <button type="button" id="btnReloadFolder" class="secondary small" disabled>↻ Reload data</button>
+          </div>
+        </section>
+
+        <section id="datasetInfoCard" hidden></section>
+
+        <section class="folder-stats-grid" id="folderStats">
+          <article class="stat-card">
+            <div class="stat-title">Cells in folder</div>
+            <div class="stat-value">0</div>
+          </article>
+          <article class="stat-card">
+            <div class="stat-title">Files plotted</div>
+            <div class="stat-value">0</div>
+          </article>
+        </section>
+
+        <section class="plot-grid" id="folderPlotGrid">
+          <div class="empty-state">
+            <strong>No folder selected</strong>
+            <span>Click a subfolder to inspect cell count and maximum cycle by file.</span>
+          </div>
+        </section>
+
+        <section class="folder-table-card" id="folderTableCard" hidden>
+          <div class="folder-table-head">
+            <h3>Files in selected folder</h3>
+            <div class="temp-filter-wrap" id="tempFilterWrap" hidden>
+              <button type="button" class="secondary small" id="tempFilterBtn">Temperature: All ▾</button>
+              <div class="temp-filter-menu" id="tempFilterMenu" hidden></div>
+            </div>
+          </div>
+          <div class="folder-table-wrap">
+            <table class="folder-table">
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Temp (°C)</th>
+                  <th>Cycles</th>
+                  <th>I chg (A)</th>
+                  <th>I dch (A)</th>
+                  <th>Qd max (Ah)</th>
+                  <th>Qd min (Ah)</th>
+                  <th>Qc max (Ah)</th>
+                  <th>Qc min (Ah)</th>
+                  <th>Qd fade</th>
+                  <th>Qc fade</th>
+                </tr>
+              </thead>
+              <tbody id="folderFileRows"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="tab-panel" id="deepPanel" hidden>
+        <section class="plot-toolbar">
+        <div>
+          <p class="eyebrow">Same data engine as Plot/*.py</p>
+          <h2>Analyse</h2>
+        </div>
+        <div class="plot-controls">
+          <div class="field">
+            <label for="plotKind">Plot</label>
+            <select id="plotKind" disabled>
+              <option value="dqdv_discharge">dQ/dV - discharge (3 panels)</option>
+              <option value="dvdq_discharge">dV/dQ - discharge (3 panels)</option>
+              <option value="qd_vs_v">Qd vs voltage - discharge (3 panels)</option>
+              <option value="qc_vs_v">Qcharge vs voltage (3 panels)</option>
+              <option value="dqdv_charge">dQ/dV - charge (3 panels)</option>
+              <option value="dvdq_charge">dV/dQ - charge (3 panels)</option>
+              <option value="qcmax">Qcmax vs cycle</option>
+              <option value="qdmax">Qdmax vs cycle</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="cycles">Cycles for 3-panel plots</label>
+            <input type="text" id="cycles" disabled placeholder="e.g. 0,1,2 or all" />
+          </div>
+          <label class="check-field">
+            <input type="checkbox" id="filterOutliers" disabled />
+            <span>Filter</span>
+          </label>
+          <button type="button" id="genPlot" disabled>Generate plot</button>
+        </div>
+        <div class="loading inline-loading" id="plotLoading" hidden>
+          <div class="spinner"></div><span>Rendering plots...</span>
+        </div>
+        <span class="err" id="plotErr" hidden></span>
+        </section>
+
+        <section class="stats-grid" id="meta" hidden></section>
+
+        <section class="plot-grid" id="plotGrid">
+          <div class="empty-state">
+            <strong>No plot yet</strong>
+            <span>Load a file, choose a plot type, then generate the plot.</span>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <script src="/app.js?v=15"></script>
+</body>
+</html>
