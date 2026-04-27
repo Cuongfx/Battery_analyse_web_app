@@ -294,8 +294,6 @@ The repository provides Hugging Face / Zenodo download links and covers all incl
 
 ## Citation
 
-If you use this tool with the BatteryLife dataset in your research, please cite:
-
 ```bibtex
 @inproceedings{10.1145/3711896.3737372,
   author    = {Tan, Ruifeng and Hong, Weixiang and Tang, Jiayue and Lu, Xibin
