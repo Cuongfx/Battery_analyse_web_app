@@ -294,6 +294,8 @@ The repository provides Hugging Face / Zenodo download links and covers all incl
 
 ## Citation
 
+If you use this tool with the BatteryLife dataset in your research, please cite:
+
 ```bibtex
 @inproceedings{10.1145/3711896.3737372,
   author    = {Tan, Ruifeng and Hong, Weixiang and Tang, Jiayue and Lu, Xibin
@@ -314,3 +316,12 @@ The repository provides Hugging Face / Zenodo download links and covers all incl
   series    = {KDD '25}
 }
 ```
+
+Tan et al., *BatteryLife: A Comprehensive Dataset and Benchmark for Battery Life Prediction*, KDD '25, Toronto, Canada.
+
+## Author
+
+👨‍💻 **Author**  
+**Manh Cuong Pham**  
+📧 mpham@rptu.de
+💼 PhD Candidate at RPTU Kaiserslautern-Landau
