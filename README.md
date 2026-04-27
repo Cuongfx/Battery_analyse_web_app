@@ -1,38 +1,8 @@
-# Battery AI Analyzer — Web UI Guide
+# Battery AI Analyzer
 
-A browser-based tool for exploring and visualising **BatteryML `.pkl` datasets**.
-All processing runs locally — your data never leaves the machine.
-
-*Design by CuongFX*
-
----
-
-## UI Overview
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  SIDEBAR                  │  MAIN WORKSPACE                             │
-│                           │                                             │
-│  ┌─────────────────────┐  │  [ General inspection ] [ Analyse ]         │
-│  │  Battery AI Analyzer│  │                                             │
-│  │  BatteryML PKL      │  │  Folder overview > General inspection       │
-│  │  browser & viewer   │  │  ─────────────────────────────────────────  │
-│  └─────────────────────┘  │  DATASET INFO  ←── from README.md           │
-│                           │  ─────────────────────────────────────────  │
-│  DATA SOURCE              │  Cells │ Plotted │ Issues │ Temp            │
-│  [Choose folder][Start ▶] │  ─────────────────────────────────────────  │
-│  /path/to/root            │  ╔══════════════════════════════════════╗   │
-│  ┌──────────────────────┐ │  ║  Maximum cycle per file – HUST       ║   │
-│  │ DIR  SubfolderA      │ │  ║  (bar chart)                         ║   │
-│  │ DIR  SubfolderB  ●   │ │  ╚══════════════════════════════════════╝   │
-│  │ PKL  cell_001.pkl    │ │  ─────────────────────────────────────────  │
-│  └──────────────────────┘ │  Files table with temperature filter        │
-│                           │                                             │
-│  FOLDER CACHE             │                                             │
-│  3 folders cached         │                                             │
-│  [Cache all] [Export]...  │                                             │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+> **BatteryML PKL browser and plot viewer** — explore, compare, and visualise battery cycle-life data entirely in your browser. All processing runs locally; your data never leaves the machine.
+>
+> *Design by CuongFX*
 
 ---
 
@@ -43,268 +13,286 @@ All processing runs locally — your data never leaves the machine.
 python -m uvicorn webapp.main:app --host 127.0.0.1 --port 8765 --reload
 ```
 
-Then open **http://localhost:8765** in your browser.
+Open **http://localhost:8765** in your browser.
 
-**Requirements:** Python 3.10+, `fastapi`, `uvicorn`, `plotly`, `numpy`, `scipy`, `pandas` (see `requirements.txt`)
-
----
-
-## 1 · Sidebar — Data Source
-
-### Choose Folder + Start Load
-
-Two buttons sit side-by-side at the top of the sidebar:
-
-| Button | Action |
-|---|---|
-| **Choose folder** | Open a system folder-picker dialog to select the root directory that contains your BatteryML `.pkl` subfolders (e.g. `Raw_BML/` or `BatteryLife/`). The folder path is remembered across browser reloads. |
-| **Start load** | Pre-loads **all** subfolders under the selected root. A progress bar shows `% complete` and `N / total files`. Once finished, everything is cached for instant access. |
-
-> **Tip:** After the first "Start load", you never need to click it again for the same folder. The app auto-restores the last folder and the last selected subfolder on every reload.
-
-### Browser Tree
-
-After choosing a folder, the sidebar lists subfolders and `.pkl` files:
-
-- **Blue `DIR` badge** — subfolder (not yet cached or has no data)
-- **Blue `DIR` badge with a filled dot (●)** — subfolder is already cached (instant load)
-- **`PKL` badge** — individual battery file (load into Analyse tab)
-
-#### Navigation gestures
-
-| Gesture | Effect |
-|---|---|
-| **Single click on folder** | Open it in *General Inspection* (switches to the General tab) |
-| **Double click on folder** | Navigate **into** the folder to see its PKL files — stays on the current tab |
-| **Single click on PKL** | Load that file into the *Analyse* tab |
+**Requirements:** Python 3.10+, packages: `fastapi`, `uvicorn`, `plotly`, `numpy`, `scipy` (see `requirements.txt`)
 
 ---
 
-## 2 · Sidebar — Folder Cache
+## Interface Overview
 
-The cache panel lets you manage scanned folder data:
+The app is divided into two areas that always stay in sync:
 
-| Element | Behaviour |
+| Area | Role |
 |---|---|
-| **N folders cached** | Live count of folders stored in browser localStorage |
-| **Cache all folders** | Pre-loads every subfolder silently in the background |
-| **Export JSON** | Downloads `battery_ai_cache.json` — back-up or share your cache |
-| **Import JSON** | Restores a previously exported cache file (merges with existing) |
-| **Clear** | Wipes the entire localStorage cache |
-
-When you reload the page, all previously cached folders open **instantly** — the bar chart is rebuilt client-side from saved row data with no server round-trip.
+| **Left sidebar** | Pick a root folder, browse subfolders and `.pkl` files, manage the cache |
+| **Main workspace** | Two tabs — **General Inspection** (folder overview) and **Analyse** (single-cell deep dive) |
 
 ---
 
-## 3 · General Inspection Tab
+## Step 1 — Choose Your Data Folder
 
-### Toolbar
+Click **Choose folder** in the sidebar to open a system folder-picker. Select the root directory that contains your BatteryML subfolders (e.g. `Raw_BML/` or `BatteryLife/`).
 
-- **Selected subfolder path** shown top-right
-- **↻ Reload data** — clears both the in-memory and disk caches for this folder, then re-reads every PKL file fresh from disk. Use this when files have been updated.
+![Choose folder and sidebar](docs/screenshots/01_choose_folder.png)
 
-### Dataset Info Card
+Once a root is selected:
 
-If a matching `DATA_info/<FOLDER>_README.md` file exists in the project, its first paragraph is shown in a card above the stats — describing the battery chemistry, format, nominal capacity, cycling protocol, etc.
+- The sidebar lists every **subfolder** (`DIR` badge, orange) and **PKL file** (`PKL` badge, blue).
+- The app remembers this folder across browser reloads — you will never need to pick it again unless you change datasets.
+- Subfolders that are already **cached** show a filled dot (●) next to their badge for instant access.
+
+### Sidebar Navigation
+
+| Action | Result |
+|---|---|
+| **Single-click a subfolder** | Opens it in the *General Inspection* tab |
+| **Double-click a subfolder** | Navigates *into* it to see its PKL files — does **not** switch tabs |
+| **Single-click a PKL file** | Loads that cell into the *Analyse* tab |
+
+> **Tip:** Stay in the Analyse tab and double-click subfolders to drill down without losing your current plot.
+
+---
+
+## Step 2 — Load Data (First Time Only)
+
+When you click a subfolder for the first time, the app reads every PKL file and builds the cache. A progress bar shows the current file and completion percentage.
+
+![First-time loading progress bar](docs/screenshots/03_progress_bar.png)
+
+What happens during loading:
+
+1. Each `.pkl` file is opened and its `cycle_data` is read.
+2. Per-file metrics are computed: max cycle, charge/discharge capacity (Qd, Qc), current, capacity fade, and End-of-Life (EOL) cycle.
+3. Results are saved to:
+   - **Server disk cache** — `webapp/cache/folder_cycle_cache.json`
+   - **Browser localStorage** — so the next visit is **instant**, no server call needed.
+
+After the first load, every subsequent visit to that subfolder is immediate. The last folder and last selected subfolder are restored automatically on page reload.
+
+---
+
+## Step 3 — General Inspection
+
+Clicking a subfolder opens the **General Inspection** view, which gives a complete picture of all cells in that folder at once.
+
+![General inspection — CALCE dataset](docs/screenshots/02_general_inspection.png)
 
 ### Stat Cards
 
-Four cards summarise the selected folder at a glance:
+Four cards appear at the top of the inspection view:
 
-| Card | Value |
+| Card | What it tells you |
 |---|---|
-| **Cells in folder** | Total `.pkl` files found |
-| **Files plotted** | Files with valid cycle data |
-| **Files with issues** | Files that failed to parse (corrupted, truncated, etc.) |
-| **Test temperature** | One blue pill badge per unique temperature (e.g. `−5 °C` `25 °C` `45 °C`). Extracted from filenames first; falls back to the Dataset Info text if no temperature is in filenames. Shown as `N/A` if unknown. |
+| **Cells in folder** | Total number of `.pkl` files found |
+| **Files plotted** | Files that were successfully read and have valid cycle data |
+| **Files with issues** | Files that failed to parse (corrupted, truncated, or incompatible) |
+| **Test temperature** | Unique test temperatures detected from filenames or the dataset README, shown as blue pill badges (e.g. `0 °C` `25 °C` `45 °C`). Shows `N/A` if unknown. |
 
-### Bar Chart — Maximum Cycle per File
-
-Each bar represents one `.pkl` file:
-
-- **Height** = the maximum cycle number recorded
-- **Colour** = a heatmap gradient from pale blue (few cycles) to deep navy (many cycles)
-- **Default sort** = Low → High (ascending)
-
-#### Sort Controls
-
-Three pill buttons in the chart header control the sort order:
-
-| Button | Effect |
-|---|---|
-| **Original** | Alphabetical / file order |
-| **↓ Low → High** | Ascending by max cycle (default) |
-| **↑ High → Low** | Descending by max cycle |
-
-Sorting is instant and client-side.
-
-#### EOL Marker (End-of-Life @ 80% Qd)
-
-The cycle at which a cell's discharge capacity drops to **80% of its initial value** is computed automatically. To see it:
-
-1. **Click any bar** — a red horizontal line appears **inside** that bar at the EOL cycle height.
-2. The cell detail panel (below the chart) also shows `EOL @ 80% Qd: cycle N`.
-3. **Click the same bar again** to hide the marker (toggle).
-4. Clicking a different bar moves the marker there.
-5. Changing the sort order clears the marker.
-
-Cells that never reached 80% capacity fade have no EOL data and show no marker.
-
-#### Bar Click → Cell Detail Panel
-
-Clicking any bar opens a panel with eight metrics for that cell:
-
-| Metric | Notes |
-|---|---|
-| Max charge current (A) | Per-cycle max, IQR-filtered to remove spike outliers |
-| Max discharge current (A) | Per-cycle min, IQR-filtered (negative value, shown in red) |
-| Max Qd / Min Qd (Ah) | Discharge capacity bounds across all cycles |
-| Max Qc / Min Qc (Ah) | Charge capacity bounds across all cycles |
-| Qd fade (%) | `(Qd₀ − Qd_last) / Qd₀ × 100` |
-| Qc fade (%) | Same for charge capacity |
-| EOL @ 80% Qd | The first cycle where Qd ≤ 80% of initial (if reached) |
-
-#### Axis Editor + Export
-
-- **Range sliders** below the chart let you zoom each axis manually.
-- **Autoscale** button resets both axes.
-- **SVG** and **PDF** buttons in the chart header export the current view.
-
-### Files Table
-
-A table below the chart lists every file with the following columns:
-
-`File` · `Temp (°C)` · `Cycles` · `I chg (A)` · `I dch (A)` · `Qd max` · `Qd min` · `Qc max` · `Qc min` · `Qd fade` · `Qc fade`
-
-#### Temperature Filter
-
-When the folder contains cells tested at **two or more temperatures**, a **Temperature** dropdown appears in the table header. Tick/untick temperatures to show only the rows you want. This is useful for datasets like MICH-EXP (−5 °C / 25 °C / 45 °C).
+> If a matching `DATA_info/<FOLDER>_README.md` exists in the project, its description is shown in an info card above the stat cards — chemistry, format, nominal capacity, cycling protocol, etc.
 
 ---
 
-## 4 · Analyse Tab
+## Step 4 — Reading the Bar Chart
 
-For detailed electrochemical analysis of a single cell:
+The bar chart shows **Maximum cycle per file** for every cell in the folder. Taller bars = longer-lived cells.
 
-1. **Double-click a `.pkl` file** in the sidebar (or single-click to load it).  
-   The status indicator at the bottom of the sidebar shows `Loaded: <filename>`.
-2. Switch to the **Analyse** tab (or stay there — double-clicking a PKL won't switch tabs).
-3. Choose a **Plot** type from the dropdown:
+![Sort controls and bar chart — Low to High](docs/screenshots/04_sort_controls.png)
 
-| Plot type | Description |
+### Colour coding
+
+Each bar is coloured on a gradient from **pale blue** (fewer cycles) to **deep navy** (more cycles), making it easy to spot the weakest and strongest cells at a glance.
+
+### Sort Controls
+
+Three buttons in the chart header control the order:
+
+| Button | Effect |
 |---|---|
-| dQ/dV – discharge (3 panels) | Differential capacity vs voltage, discharge half-cycle |
+| **Original** | File-system / alphabetical order |
+| **↓ Low → High** | Ascending by max cycle *(default)* |
+| **↑ High → Low** | Descending by max cycle |
+
+Sorting is instant and runs entirely in the browser.
+
+### EOL Marker (End-of-Life @ 80% Qd)
+
+The app computes the **first cycle where discharge capacity drops to 80% of its initial value** — the standard industry End-of-Life threshold.
+
+To see it:
+1. **Click any bar** — a red horizontal line appears *inside* that bar at the EOL cycle height.
+2. The cell detail panel also shows `EOL @ 80% Qd: cycle N`.
+3. **Click the same bar again** to hide the line (toggle off).
+4. Clicking a different bar moves the marker there.
+5. Changing the sort order clears it.
+
+Cells that never reached 80% capacity fade have no EOL marker.
+
+### Click a Bar → Cell Detail Panel
+
+Clicking any bar opens a panel with eight metrics for that specific cell:
+
+| Metric | Description |
+|---|---|
+| Max charge current (A) | Highest recorded charge current, IQR-filtered |
+| Max discharge current (A) | Highest discharge current (negative, shown red) |
+| Max Qd / Min Qd (Ah) | Discharge capacity range across all cycles |
+| Max Qc / Min Qc (Ah) | Charge capacity range across all cycles |
+| Qd fade (%) | `(Qd first − Qd last) / Qd first × 100` |
+| Qc fade (%) | Same for charge capacity |
+| EOL @ 80% Qd | Cycle number where the cell reached end-of-life (if applicable) |
+
+### Axis Range Sliders
+
+Below the chart, **Range Sliders** let you zoom into a specific part of the x or y axis without using the Plotly toolbar. Click **Autoscale** to reset to full range.
+
+### Export
+
+**SVG** and **PDF** buttons in the chart header save the current chart view to disk.
+
+---
+
+## Step 5 — Files Table
+
+Scrolling down below the bar chart reveals the **Files Table** — one row per cell with full metric columns.
+
+| Column | Description |
+|---|---|
+| File | `.pkl` filename |
+| Temp (°C) | Test ambient temperature |
+| Cycles | Number of cycles recorded |
+| I chg (A) | Maximum charge current |
+| I dch (A) | Maximum discharge current |
+| Qd max / Qd min | Discharge capacity bounds (Ah) |
+| Qc max / Qc min | Charge capacity bounds (Ah) |
+| Qd fade / Qc fade | Capacity fade percentage |
+
+#### Temperature Filter
+
+When a folder contains cells tested at two or more temperatures, a **Temperature** dropdown appears in the table header. Check or uncheck temperatures to show only the subset you care about (e.g. show only `-5 °C` cells from a mixed dataset).
+
+---
+
+## Step 6 — Analyse Tab (Single-Cell Deep Dive)
+
+For electrochemical analysis of a single cell, use the **Analyse** tab.
+
+![Analyse tab](docs/screenshots/05_deep_dive.png)
+
+### How to use
+
+1. **Double-click a `.pkl` file** in the sidebar. The status bar at the bottom of the sidebar changes to `Loaded: <filename>`.
+2. Switch to the **Analyse** tab.
+3. Choose a **Plot type** from the dropdown:
+
+| Plot type | What it shows |
+|---|---|
+| dQ/dV – discharge (3 panels) | Differential capacity vs voltage for the discharge half-cycle |
 | dV/dQ – discharge (3 panels) | Differential voltage vs capacity, discharge |
-| Qd vs voltage (3 panels) | Discharge capacity vs cell voltage |
+| Qd vs voltage – discharge (3 panels) | Discharge capacity plotted against cell voltage |
 | Qcharge vs voltage (3 panels) | Charge capacity vs cell voltage |
 | dQ/dV – charge (3 panels) | dQ/dV on the charge half-cycle |
 | dV/dQ – charge (3 panels) | dV/dQ on the charge half-cycle |
-| Qcmax vs cycle | Max charge capacity fade curve over all cycles |
-| Qdmax vs cycle | Max discharge capacity fade curve over all cycles |
+| Qcmax vs cycle | Max charge capacity fade curve across all cycles |
+| Qdmax vs cycle | Max discharge capacity fade curve across all cycles |
 
-4. For 3-panel plots, enter the **Cycles** to compare — e.g. `0,1,2` or `all`.
-5. Tick **Filter** to clip axes to the 1–99 percentile (removes extreme outliers).
+4. For **3-panel plots**, type the cycle numbers to compare in the **Cycles** field:
+   - Specific cycles: `0, 50, 100`
+   - All cycles: `all`
+5. Tick **Filter** to clip axes to the 1–99 percentile, removing extreme outliers.
 6. Click **Generate plot**.
 
 ### Stats Cards (Analyse tab)
 
-Above the plot, summary cards show: total cycles, max cycle index, voltage range, current range, and first/last capacity for Qdmax and Qcmax.
+Before generating a plot, summary cards appear above the plot area showing: total cycle count, max cycle index, voltage range, current range, and first/last capacity for Qdmax and Qcmax.
 
 ---
 
-## 5 · Plotly Toolbar Shortcuts
+## Folder Cache Panel
 
-| Action | How |
+The **Folder cache** section at the bottom of the sidebar lets you manage all cached data.
+
+| Button | Effect |
 |---|---|
-| Pan | Click and drag |
-| Zoom box | Drag while in zoom-box mode |
-| Zoom scroll | Mouse wheel |
-| Reset view | Double-click chart, or **Autoscale** |
-| Export image | **SVG** / **PDF** buttons in the card header |
-| Download PNG | Camera icon in the Plotly toolbar |
+| **Cache all folders** | Pre-loads every visible subfolder silently — useful for first-time bulk caching |
+| **Export JSON** | Downloads `battery_ai_cache.json` — back up or share your cache with a colleague |
+| **Import JSON** | Restores a previously exported cache (merges with existing entries) |
+| **Clear** | Wipes the entire browser localStorage cache |
+
+> **Sharing a cache:** Use Export + Import to copy a fully-populated cache to another machine — no need to re-process the PKL files on the second machine.
 
 ---
 
-## 6 · Cache Architecture
+## Cache Architecture
 
-| Layer | Where | What |
+| Layer | Location | Purpose |
 |---|---|---|
-| **Server disk cache** | `webapp/cache/folder_cycle_cache.json` | Full per-file metrics keyed by path + file size + mtime. Version-stamped — adding new metrics auto-invalidates. |
-| **Browser localStorage** | Key `batteryAi.folders.v2` | Row data mirrored in-browser. Bar charts rebuilt client-side on reload — zero server calls. |
-| **Last selected folder** | Key `batteryAi.lastSelected` | The subfolder that was open when you left. Auto-restored on next load. |
-| **Last root folder** | Key `batteryAi.lastRootDir` | Which root folder was browsed. Auto-browsed on next load. |
-| **In-session cache** | JS `Map` | Switching folders in the same session uses the in-memory copy — no network. |
+| **Server disk cache** | `webapp/cache/folder_cycle_cache.json` | Per-file metrics, keyed by path + file size + mtime. Auto-invalidated when files change. |
+| **Browser localStorage** | Key `batteryAi.folders.v2` | Row data mirrored in-browser. Bar chart rebuilt client-side on reload — zero server calls. |
+| **Last selected folder** | Key `batteryAi.lastSelected` | The subfolder that was open when you last closed the app. Auto-restored on next load. |
+| **Last root folder** | Key `batteryAi.lastRootDir` | The root folder that was browsed. Auto-browsed on next load. |
 
 ---
 
-## 7 · Expected Folder Structure
+## Temperature Detection
 
-```
-Root folder/             ← choose this with "Choose folder"
-├── HUST/
-│   ├── HUST_cell_001.pkl
-│   ├── HUST_cell_002.pkl
-│   └── ...
-├── MATR/
-│   └── ...
-├── CALB/
-│   └── ...
-└── ...
-```
+The app automatically determines the test ambient temperature of each cell:
 
-Each `.pkl` must be a BatteryML-format pickle with at minimum a `cycle_data` list whose entries contain a `cycle_number` field.
-
-If a subfolder name matches a `*_README.md` file under `DATA_info/` (e.g. `HUST/` ↔ `DATA_info/HUST_README.md`), the dataset description card appears automatically.
-
----
-
-## 8 · Temperature Detection
-
-The app automatically determines the **test ambient temperature** of each cell:
-
-1. **Filename patterns** — searches for chemistry/format keywords followed by a temperature:
-   - `NMC_25C`, `pouch_-5C`, `18650_30C`, `LFP_45C` → extracts `25`, `−5`, `30`, `45 °C`
+1. **Filename-first** — searches for chemistry/format keywords followed by a temperature token:
+   - `NMC_25C`, `pouch_-5C`, `18650_30C`, `LFP_45C` → `25 °C`, `−5 °C`, `30 °C`, `45 °C`
    - Dataset-prefix style: `CALB_0_B182` → `0 °C`, `CALB_35_B247` → `35 °C`
-   - Cell-ID tokens like `02C`, `05C` are **not** matched (avoids false positives)
-
-2. **Dataset info text fallback** — if no temperature is in the filename, the README text is parsed for phrases like *"30 degrees Celsius"*, *"temperature of 25°C"*, etc.
-
-3. **N/A** — shown when no temperature can be determined.
+   - Cell-ID tokens like `02C`, `05C` are **not matched** (avoids false positives)
+2. **README fallback** — if no temperature is found in the filename, the Dataset Info text is scanned for phrases like *"30 degrees Celsius"* or *"temperature of 25°C"*
+3. **N/A** — displayed when no temperature can be determined
 
 ---
 
-## 9 · Troubleshooting
+## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
-| Some files show all `—` in the table | Those PKL files are corrupted or truncated. Re-download them, then click **↻ Reload data**. |
+| Some files show `—` in every column | Those PKL files are corrupted or truncated. Re-download them, then click **↻ Reload data**. |
 | "No cycle data found" | The PKL files lack a `cycle_data` list with `cycle_number` fields. |
-| Chart is empty / 0 files plotted | Check the Files table — every row probably failed to parse. |
-| "Connection error" during loading | The server may have restarted. Refresh the page. |
-| Stale UI / missing buttons | Hard-refresh (`Ctrl+Shift+R` / `Cmd+Shift+R`) to bypass the JS cache. |
-| Temperature shows wrong value | Clear the localStorage cache (Folder cache → **Clear**) and reload to force re-detection. |
-| Folder loads slowly every time | Delete `webapp/cache/folder_cycle_cache.json` and click **Start load** to rebuild. |
-| Cache works on one machine but not another | Use **Export JSON** to save your cache, then **Import JSON** on the other machine. |
+| Loading is slow every time | Delete `webapp/cache/folder_cycle_cache.json` and run **Start load** to rebuild. |
+| Stale UI after an update | Hard-refresh: `Ctrl+Shift+R` (Windows/Linux) or `Cmd+Shift+R` (Mac). |
+| Wrong temperature shown | Click **Clear** in the cache panel and reload the folder. |
+| "Connection error" | The FastAPI server may have restarted. Refresh the page. |
 
 ---
 
-## 10 · Dataset Download
+## Expected Folder Structure
 
-This app is designed to work with the **BatteryLife** dataset collection.  
-For download instructions see the official repository:
+```
+Root folder/             ← select this with "Choose folder"
+├── CALB/
+│   ├── CALB_0_B182.pkl
+│   ├── CALB_25_B247.pkl
+│   └── ...
+├── HUST/
+│   ├── HUST_cell_001.pkl
+│   └── ...
+├── MICH_EXP/
+│   ├── MICH_01R_pouch_NMC_-5C_0-100_1.5-1.5C.pkl
+│   └── ...
+└── DATA_info/           ← optional: README files for dataset descriptions
+    ├── CALB_README.md
+    ├── HUST_README.md
+    └── ...
+```
+
+---
+
+## Dataset Download
+
+This app works with the **BatteryLife** dataset collection. Download instructions:
 
 **https://github.com/Ruifeng-Tan/BatteryLife**
 
-The repository covers:
-- Hugging Face / Zenodo download links
-- Folder layout (`CALCE/`, `MATR/`, `HUST/`, `HNEI/`, `MICH/`, `CALB/`, …)
-- Per-source README files (mirrored under this project's `DATA_info/`)
-
-Once downloaded, point **Choose folder** at the root containing those subfolders.
+The repository provides Hugging Face / Zenodo download links and covers all included datasets: `CALCE`, `MATR`, `HUST`, `HNEI`, `MICH`, `CALB`, `MICH_EXP`, and more.
 
 ---
 
-## 11 · Citation
+## Citation
 
 If you use this tool with the BatteryLife dataset in your research, please cite:
 
