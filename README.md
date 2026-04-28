@@ -294,6 +294,12 @@ The repository provides Hugging Face / Zenodo download links and covers all incl
 
 ## Citation
 
+If you use this software, you **must cite the author** in your publication, report, thesis, or project documentation.
+
+Recommended citation:
+
+`Pham, M. C. Battery Analyse Tool, RPTU Kaiserslautern-Landau.`
+
 If you use this tool with the BatteryLife dataset in your research, please cite:
 
 ```bibtex
@@ -316,8 +322,6 @@ If you use this tool with the BatteryLife dataset in your research, please cite:
   series    = {KDD '25}
 }
 ```
-
-Tan et al., *BatteryLife: A Comprehensive Dataset and Benchmark for Battery Life Prediction*, KDD '25, Toronto, Canada.
 
 ## Author
 
