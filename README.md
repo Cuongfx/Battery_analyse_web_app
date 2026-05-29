@@ -234,13 +234,11 @@ The repository provides Hugging Face / Zenodo download links covering all includ
 
 If you use the **Battery AI Analyzer** in your research, please cite it as:
 
-> Pham, Manh Cuong. *Battery AI Analyzer: A local browser-based viewer for BatteryML cycle-life data.* RPTU Kaiserslautern-Landau, 2026. https://github.com/Cuongfx/Battery_analyse_web_app
+> Pham, Manh Cuong. *Battery AI Analyzer* RPTU Kaiserslautern-Landau, 2026. https://github.com/Cuongfx/Battery_analyse_web_app
 
 ```bibtex
 @software{pham_battery_ai_analyzer_2026,
   author  = {Pham, Manh Cuong},
-  title   = {Battery AI Analyzer: A Local Browser-Based Viewer for
-             BatteryML Cycle-Life Data},
   year    = {2026},
   url     = {https://github.com/Cuongfx/Battery_analyse_web_app},
   note    = {RPTU Kaiserslautern-Landau.
