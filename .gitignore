@@ -1,0 +1,29 @@
+# Python virtual environment
+.venv/
+venv/
+
+# Large dataset backup (data, not pushed)
+Backup/
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# macOS metadata
+._*
+.DS_Store
+
+# Logs
+*.log
+
+# Generated runtime cache
+webapp/cache/
+
+# Claude Code local files (settings, worktrees)
+.claude/
+
+# Raw dataset: keep the folder/subfolder structure only, exclude all data files
+/Raw/**
+!/Raw/
+!/Raw/**/
+!/Raw/**/.gitkeep

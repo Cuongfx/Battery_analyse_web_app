@@ -2,6 +2,9 @@ const $ = (id) => document.getElementById(id);
 
 const state = {
   sessionId: null,
+  loadedFileName: null,
+  compareSessionId: null,
+  compareFileName: null,
   currentDir: null,
   rootDir: null,
   selectedFolder: null,
@@ -10,6 +13,7 @@ const state = {
   datasetInfo: {},
   activeTempFilter: null,    // Set<number> | null  (null = no filter, all visible)
   currentRowsForFilter: [],  // rows for current folder, used when filter changes
+  folderFallbackTemp: null,  // number | null — README ambient temp for files whose name has none (single-temp datasets only)
 };
 
 const LAST_ROOT_KEY = "batteryAi.lastRootDir";
@@ -50,10 +54,55 @@ function setLoaded(on, name = "") {
 }
 
 function enablePlotControls(enabled) {
-  ["plotKind", "cycles", "genPlot", "filterOutliers"].forEach((id) => {
-    $(id).disabled = !enabled;
+  [
+    "plotKind", "cycleMode", "cycles", "cycleFrom", "cycleTo", "cycleStep",
+    "genPlot", "filterOutliers",
+    // Feature Analyse
+    "featPlotKind", "featUseRefCycle", "featRefCycle", "featCycleMode", "featCycles",
+    "featCycleFrom", "featCycleTo", "featCycleStep",
+    "featGenPlot", "featFilterOutliers",
+  ].forEach((id) => {
+    const el = $(id);
+    if (el) el.disabled = !enabled;
   });
+  // Re-evaluate folder-mode availability (it's based on plot kind, not session state).
+  if (typeof syncFeatFolderMode === "function") syncFeatFolderMode();
+  if (typeof syncFeatReferenceUi === "function") syncFeatReferenceUi();
 }
+
+// Show/hide cycle inputs for a given input-set prefix ("" = Analyse, "feat" = Feature).
+function syncCycleModeFor(prefix) {
+  const cap = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+  const id = (base) => prefix ? `${prefix}${cap(base)}` : base;
+  const mode = $(id("cycleMode")).value;
+  $(id("cycles")).hidden = mode !== "list";
+  $(id("cycleRangeInputs")).hidden = mode !== "range";
+}
+
+function syncCycleMode() { syncCycleModeFor(""); }
+function syncFeatCycleMode() { syncCycleModeFor("feat"); }
+
+// Build the cycles spec for either input-set.
+function readCycleSpecFor(prefix) {
+  const cap = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+  const id = (base) => prefix ? `${prefix}${cap(base)}` : base;
+  const mode = $(id("cycleMode")).value;
+  if (mode === "list") {
+    return $(id("cycles")).value.trim() || "all";
+  }
+  if (mode === "range") {
+    const from = $(id("cycleFrom")).value.trim();
+    const to = $(id("cycleTo")).value.trim();
+    const step = $(id("cycleStep")).value.trim();
+    if (from === "" && to === "") return "all";
+    const a = from === "" ? "0" : from;
+    const b = to === "" ? a : to;
+    return step !== "" ? `${a}-${b}:${step}` : `${a}-${b}`;
+  }
+  return "all";
+}
+
+function readCycleSpec() { return readCycleSpecFor(""); }
 
 function switchTab(name) {
   document.querySelectorAll(".tab").forEach((tab) => {
@@ -61,8 +110,10 @@ function switchTab(name) {
   });
   $("generalPanel").hidden = name !== "general";
   $("deepPanel").hidden = name !== "deep";
+  $("featurePanel").hidden = name !== "feature";
   $("generalPanel").classList.toggle("active", name === "general");
   $("deepPanel").classList.toggle("active", name === "deep");
+  $("featurePanel").classList.toggle("active", name === "feature");
   setTimeout(() => {
     state.charts.forEach((chart) => Plotly.Plots.resize(chart));
   }, 0);
@@ -114,7 +165,11 @@ function extractTempFromName(name) {
 function rowTemp(row) {
   if (row == null) return null;
   if (row.temperature_c != null) return row.temperature_c;
-  return extractTempFromName(row.name);
+  const fromName = extractTempFromName(row.name);
+  if (fromName != null) return fromName;
+  // Fall back to the dataset's README ambient temperature, but only when it's a
+  // single-temperature dataset (otherwise we can't tell which cell is which).
+  return state.folderFallbackTemp;
 }
 
 function uniqueTemps(rows) {
@@ -132,7 +187,8 @@ function extractTempFromInfoText(text) {
   if (!text) return [];
   const found = new Set();
   // Pattern: number followed by "degrees Celsius" / "°C" / "oC" with optional spaces
-  const re = /(-?\d+)\s*(?:degrees?\s*[Cc]elsius|°[Cc]|o[Cc])\b/g;
+  // Trailing (?![0-9]) instead of \b so "35°Cand45°C" (no space) still yields 35.
+  const re = /(-?\d+)\s*(?:degrees?\s*[Cc]elsius|°[Cc]|o[Cc])(?![0-9])/g;
   let m;
   while ((m = re.exec(text)) !== null) {
     const t = parseInt(m[1], 10);
@@ -181,7 +237,7 @@ function renderFolderStats(data, temps = []) {
     : `<span class="temp-pill temp-pill--none">N/A</span>`;
   const tempCard = `
     <article class="stat-card stat-card--temp">
-      <div class="stat-title">Test temperature</div>
+      <div class="stat-title">Ambient temperature</div>
       <div class="temp-pill-row">${tempHtml}</div>
     </article>
   `;
@@ -405,7 +461,11 @@ function buildFolderFigure(rows, folderName) {
 
   const names = valid.map((r) => r.name);
   const maxCycles = valid.map((r) => r.max_cycle);
-  const cycleCounts = valid.map((r) => r.cycle_count || 0);
+  // customdata: [cycle_count, eol_80_cycle]  (eol = -1 if not available)
+  const customdata = valid.map((r) => [
+    r.cycle_count || 0,
+    (r.eol_80_cycle != null && r.eol_80_cycle > 0) ? r.eol_80_cycle : -1,
+  ]);
 
   const minC = Math.min(...maxCycles);
   const maxC = Math.max(...maxCycles);
@@ -415,36 +475,15 @@ function buildFolderFigure(rows, folderName) {
     return `rgb(${Math.round(189 + (23 - 189) * t)},${Math.round(215 + (71 - 215) * t)},${Math.round(247 + (166 - 247) * t)})`;
   });
 
-  // EOL @ 80% red line markers
-  const eolX = [];
-  const eolY = [];
-  for (const r of valid) {
-    if (r.eol_80_cycle != null && r.eol_80_cycle > 0) {
-      eolX.push(r.name);
-      eolY.push(r.eol_80_cycle);
-    }
-  }
-
   const traces = [{
     type: "bar",
     x: names,
     y: maxCycles,
     marker: { color: colors, line: { color: "rgba(23,71,166,0.35)", width: 0.6 } },
-    customdata: cycleCounts,
+    customdata: customdata,
     hovertemplate: "File: %{x}<br>Max cycle: %{y}<extra></extra>",
     showlegend: false,
   }];
-  if (eolX.length) {
-    traces.push({
-      type: "scatter",
-      mode: "markers",
-      x: eolX,
-      y: eolY,
-      marker: { symbol: "line-ew", size: 24, line: { color: "#dc2626", width: 4 } },
-      hovertemplate: "%{x}<br>EOL @ 80%: cycle %{y}<extra></extra>",
-      showlegend: false,
-    });
-  }
 
   return {
     data: traces,
@@ -716,8 +755,9 @@ async function inspectFolder(path) {
   if (row) row.classList.add("selected");
   const reloadBtn = $("btnReloadFolder");
   if (reloadBtn) reloadBtn.disabled = false;
-  switchTab("general");
+  // Stay on whichever tab the user is currently on — don't force a switch.
   renderDatasetInfo(path.split(/[\\/]/).pop());
+  _updateLogfeatFolderBanner();
 
   if (state.folderCache.has(path)) {
     await renderFolderInspection(state.folderCache.get(path));
@@ -787,18 +827,27 @@ async function renderFolderInspection(data) {
   const rows = data.rows || [];
   const folderName = data.folder_name || (state.selectedFolder || "").split(/[\\/]/).pop();
 
-  // Resolve temperatures: from filenames first, fall back to README info text
+  // Resolve temperatures from the README prose so we can (a) fill the per-file
+  // column when a filename carries no temperature and (b) show the stat box.
+  const key = folderName.replace(/-/g, "_");
+  const info = state.datasetInfo[key] || state.datasetInfo[folderName] || state.datasetInfo[key.toUpperCase()];
+  const infoTemps = extractTempFromInfoText(info);
+  // Per-file fallback only when the dataset has a single ambient temperature —
+  // multi-temperature datasets must come from the filename or stay unknown.
+  state.folderFallbackTemp = infoTemps.length === 1 ? infoTemps[0] : null;
+
+  // Stat box: filename temps (now incl. the fallback via rowTemp), else README list
   let temps = uniqueTemps(rows);
-  if (temps.length === 0) {
-    const key = folderName.replace(/-/g, "_");
-    const info = state.datasetInfo[key] || state.datasetInfo[folderName] || state.datasetInfo[key.toUpperCase()];
-    temps = extractTempFromInfoText(info);
-  }
+  if (temps.length === 0) temps = infoTemps;
 
   renderFolderStats(data, temps);
   renderFolderRows(rows);
   renderDatasetInfo(folderName, temps);
-  const figure = data.figure || buildFolderFigure(data.rows || [], folderName);
+  // Refresh the Feature Analyse compare-bar dropdowns with this folder's PKL files.
+  populateFeatFileDropdowns();
+  // Always rebuild client-side so the figure reflects current chart logic
+  // (older cached `data.figure` payloads may still contain the old EOL scatter trace)
+  const figure = buildFolderFigure(data.rows || [], folderName);
 
   if (!figure) {
     $("folderPlotGrid").innerHTML = `
@@ -828,6 +877,7 @@ async function renderFolderInspection(data) {
   };
 
   chart._folderRows = data.rows || [];
+  chart._eolBarIndex = null;   // which bar currently shows EOL marker
 
   state.charts.set(chartId, chart);
   wirePlotCard(card, chart, title);
@@ -836,13 +886,44 @@ async function renderFolderInspection(data) {
   buildAxisEditor(chart, card.querySelector(".axis-editor"));
   chart.on("plotly_relayout", () => syncAxisEditorValues(chart));
 
-  // Bar click → detail panel
+  // Bar click → detail panel + EOL shape inside the bar
   card.insertAdjacentHTML("beforeend", `<div class="bar-detail-panel" hidden></div>`);
   chart.on("plotly_click", (event) => {
     const pt = event?.points?.[0];
     if (!pt) return;
     const row = (chart._folderRows || []).find((r) => r.name === pt.x);
     if (row) showBarDetail(card.querySelector(".bar-detail-panel"), row);
+
+    // EOL shape: customdata[1] is eol_80_cycle (-1 = none)
+    const eolCycle = pt.customdata?.[1] ?? -1;
+    const idx = pt.pointIndex;
+
+    if (eolCycle > 0) {
+      if (chart._eolBarIndex === idx) {
+        // Toggle off — same bar clicked again
+        Plotly.relayout(chart, { shapes: [] });
+        chart._eolBarIndex = null;
+      } else {
+        // Draw horizontal EOL line INSIDE the bar
+        Plotly.relayout(chart, {
+          shapes: [{
+            type: "line",
+            xref: "x",
+            yref: "y",
+            x0: idx - 0.42,
+            x1: idx + 0.42,
+            y0: eolCycle,
+            y1: eolCycle,
+            line: { color: "#dc2626", width: 3, dash: "solid" },
+          }],
+        });
+        chart._eolBarIndex = idx;
+      }
+    } else {
+      // Bar has no EOL data — clear any existing marker
+      Plotly.relayout(chart, { shapes: [] });
+      chart._eolBarIndex = null;
+    }
   });
 }
 
@@ -890,7 +971,13 @@ function showBarDetail(panel, row) {
         <div class="detail-metric-label">Qc fade</div>
         <div class="detail-metric-value detail-metric-fade">${pct(row.qc_fade_pct)}</div>
       </div>
+      ${row.eol_80_cycle > 0 ? `
+      <div class="detail-metric detail-metric--eol">
+        <div class="detail-metric-label">EOL @ 80% Qd</div>
+        <div class="detail-metric-value detail-metric-eol">cycle ${row.eol_80_cycle}</div>
+      </div>` : ""}
     </div>
+    ${row.eol_80_cycle > 0 ? `<p class="bar-detail-eol-hint">🔴 Red line on chart = EOL cycle. Click bar again to hide.</p>` : ""}
   `;
   panel.querySelector(".bar-detail-close").addEventListener("click", () => {
     panel.hidden = true;
@@ -942,8 +1029,10 @@ function applyFolderSort(chart, order) {
     },
     [0],
   );
-  // Keep the EOL marker trace aligned to the same categorical order
+  // Clear any EOL shape — positions shift after sort
+  chart._eolBarIndex = null;
   Plotly.relayout(chart, {
+    shapes: [],
     "xaxis.categoryorder": "array",
     "xaxis.categoryarray": newOrder,
   });
@@ -1072,6 +1161,15 @@ function renderBrowser(data) {
       const type = row.dataset.type;
       const path = decodeURIComponent(row.dataset.path);
       if (type === "dir" || type === "up") browseDir(path, { skipRestore: true });
+      if (type === "dir") {
+        // Register as selected folder so Feature Analyse log plots can use it immediately.
+        state.selectedFolder = path;
+        localStorage.setItem(LAST_SELECTED_KEY, path);
+        $("folderInspectTarget").textContent = path;
+        renderDatasetInfo(path.split(/[\\/]/).pop());
+        syncFeatFolderMode();
+        _updateLogfeatFolderBanner();   // show folder name in Plot Log feature banner
+      }
       if (type === "pkl") loadPkl(path);
     });
     row.addEventListener("click", () => {
@@ -1084,6 +1182,8 @@ function renderBrowser(data) {
       }, 220);
     });
   });
+  // Keep the Feature Analyse compare dropdowns in sync with whatever's in the sidebar
+  if (typeof populateFeatFileDropdowns === "function") populateFeatFileDropdowns();
 }
 
 function browserRow(type, path, name, size) {
@@ -1120,10 +1220,127 @@ async function loadPkl(path) {
   }
 
   state.sessionId = data.session_id;
+  state.loadedFileName = data.name;
   setLoaded(true, data.name);
   renderMeta(data.meta);
   enablePlotControls(true);
-  switchTab("deep");
+  refreshFeatPinButton();
+  // Stay on whichever tab the user is currently on — don't force a switch.
+}
+
+// ── Feature compare: two-file dropdowns ──────────────────────────────────
+
+async function loadFileSession(path) {
+  const response = await fetch("/api/load-path", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.detail || response.statusText);
+  }
+  return { sessionId: data.session_id, name: data.name };
+}
+
+function pklRowsForCurrentFolder() {
+  // 1) Prefer the live sidebar listing — always matches what's shown on the left.
+  const sidebarRows = pklEntriesFromSidebar();
+  if (sidebarRows.length) return sidebarRows;
+  // 2) Fall back to the inspected-folder cache.
+  if (state.selectedFolder && state.folderCache.has(state.selectedFolder)) {
+    return state.folderCache.get(state.selectedFolder).rows || [];
+  }
+  return [];
+}
+
+// Read every PKL row currently shown in the sidebar browser. Returns
+// [{name, path, size?}] in display order.
+function pklEntriesFromSidebar() {
+  const browser = $("browser");
+  if (!browser) return [];
+  const rows = browser.querySelectorAll(".row.pkl");
+  const out = [];
+  rows.forEach((row) => {
+    const path = decodeURIComponent(row.dataset.path || "");
+    if (!path) return;
+    const nameEl = row.querySelector(".row-name");
+    const name = nameEl ? nameEl.textContent.trim() : path.split(/[\\/]/).pop();
+    out.push({ name, path });
+  });
+  return out;
+}
+
+function populateFeatFileDropdowns() {
+  const a = $("featFileA");
+  const b = $("featFileB");
+  if (!a || !b) return;
+  const rows = pklRowsForCurrentFolder();
+  const opts = [`<option value="">— pick a file —</option>`].concat(
+    rows.map(r => `<option value="${escapeHtml(r.path || r.name)}">${escapeHtml(r.name)}</option>`)
+  ).join("");
+  a.innerHTML = opts;
+  b.innerHTML = opts;
+  a.disabled = rows.length === 0;
+  b.disabled = rows.length === 0 || !$("featCompareEnable").checked;
+  // Pre-select File A to match the currently loaded file if it's in this folder.
+  if (state.loadedFileName) {
+    const match = rows.find(r => r.name === state.loadedFileName);
+    if (match) a.value = match.path || match.name;
+  }
+  syncFeatCompareUi();
+}
+
+function syncFeatCompareUi() {
+  const enabled = $("featCompareEnable").checked;
+  $("featFileBWrap").hidden = !enabled;
+  const rows = pklRowsForCurrentFolder();
+  $("featFileB").disabled = !enabled || rows.length === 0;
+  const info = $("featCompareInfo");
+  if (rows.length === 0) {
+    info.textContent = "Open a folder containing .pkl files in the sidebar.";
+  } else if (enabled) {
+    info.textContent = state.compareSessionId
+      ? `→ Plotting File A (blue/red) vs File B (orange/cyan) from ${state.currentDir || ""}`
+      : "Pick a file in each dropdown above.";
+  } else {
+    info.textContent = "Tick the box to overlay a second file from the same folder.";
+  }
+}
+
+async function onFeatFileAChange() {
+  const path = $("featFileA").value;
+  if (!path) return;
+  showErr("featPlotErr", "");
+  try {
+    const { sessionId, name } = await loadFileSession(path);
+    state.sessionId = sessionId;
+    state.loadedFileName = name;
+    setLoaded(true, name);
+    enablePlotControls(true);
+    syncFeatCompareUi();
+  } catch (error) {
+    showErr("featPlotErr", `Could not load File A: ${error.message}`);
+  }
+}
+
+async function onFeatFileBChange() {
+  const path = $("featFileB").value;
+  if (!path) {
+    state.compareSessionId = null;
+    state.compareFileName = null;
+    syncFeatCompareUi();
+    return;
+  }
+  showErr("featPlotErr", "");
+  try {
+    const { sessionId, name } = await loadFileSession(path);
+    state.compareSessionId = sessionId;
+    state.compareFileName = name;
+    syncFeatCompareUi();
+  } catch (error) {
+    showErr("featPlotErr", `Could not load File B: ${error.message}`);
+  }
 }
 
 async function doPlot() {
@@ -1137,7 +1354,7 @@ async function doPlot() {
   const isCapacityPlot = kind === "qcmax" || kind === "qdmax";
   const body = {
     kind,
-    cycles: isCapacityPlot ? null : ($("cycles").value.trim() || "all"),
+    cycles: isCapacityPlot ? null : readCycleSpec(),
     filter_outliers: $("filterOutliers").checked,
   };
 
@@ -1163,6 +1380,310 @@ async function doPlot() {
   } finally {
     $("plotLoading").hidden = true;
     $("genPlot").disabled = false;
+  }
+}
+
+function isLogavgKind(kind) {
+  return /^log(avg|max|min)_/.test(kind);
+}
+
+// ── Feature Analyse sub-tabs ─────────────────────────────────────────────
+// Short explanation shown under the sub-tabs for each Feature Analyse mode.
+const FEAT_MODE_HELP = {
+  single:
+    "Plot single renders the selected feature for one cell at a time. Pick a file " +
+    "from the folder, choose a plot type, and select the cycles to show. Tick " +
+    "<strong>Use reference</strong> to subtract a chosen reference cycle from every " +
+    "plotted cycle, so each curve shows the change relative to that baseline.",
+  compare:
+    "Compare two overlays the same feature from two cells on a single chart for a " +
+    "side-by-side comparison. Pick <strong>File A</strong> and <strong>File B</strong> " +
+    "from the folder, then choose a plot type and the cycles to show. Tick " +
+    "<strong>Use reference</strong> to subtract the reference cycle from each file " +
+    "before plotting, so you compare how each cell deviates from its own baseline.",
+  logfeat:
+    "Plot Log feature compares <strong>every cell in the selected folder</strong>. " +
+    "Each plot summarises how the cells differ at one specific cycle: a point is drawn " +
+    "per cell at the chosen <strong>target cycle</strong>, plotted against cycle life. " +
+    "A reference is optional — when <strong>Use reference</strong> is enabled, each " +
+    "cell's data has its reference-cycle data subtracted before the log feature is computed.",
+};
+
+function _updateFeatModeHelp(name) {
+  const el = $("featModeHelp");
+  if (el) el.innerHTML = FEAT_MODE_HELP[name] || "";
+}
+
+// "single" → standard single-file Δ plots (compare bar hidden, folder mode off)
+// "compare" → compare-two-files plots (compare bar shown + auto-checked)
+// "logfeat" → log⟨|Δ ...|⟩ folder scatter (compare bar hidden, folder mode on)
+function switchFeatSubTab(name) {
+  document.querySelectorAll("#featSubTabs .sub-tab").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.subtab === name);
+  });
+
+  const compareBar = $("featCompareBar");
+  const folderBar = $("featFolderBar");
+  const cyclesField = $("featCyclesField");
+  const targetField = $("featTargetCycleField");
+  const compareEnable = $("featCompareEnable");
+  const folderMode = $("featFolderMode");
+
+  if (name === "single") {
+    compareBar.hidden = true;
+    folderBar.hidden = true;
+    cyclesField.hidden = false;
+    targetField.hidden = true;
+    compareEnable.checked = false;
+    folderMode.checked = false;
+    state.compareSessionId = null;
+    state.compareFileName = null;
+  } else if (name === "compare") {
+    compareBar.hidden = false;
+    folderBar.hidden = true;
+    cyclesField.hidden = false;
+    targetField.hidden = true;
+    compareEnable.checked = true;     // auto-on for this sub-tab
+    $("featFileBWrap").hidden = false;
+    folderMode.checked = false;
+  } else if (name === "logfeat") {
+    compareBar.hidden = true;
+    folderBar.hidden = true;
+    cyclesField.hidden = true;
+    targetField.hidden = false;
+    compareEnable.checked = false;
+    folderMode.checked = true;
+    state.compareSessionId = null;
+    state.compareFileName = null;
+  }
+
+  // Update the mode explanation under the sub-tabs
+  _updateFeatModeHelp(name);
+
+  // Show/hide the logfeat folder indicator
+  const logfeatBar = $("logfeatFolderBar");
+  if (logfeatBar) logfeatBar.hidden = (name !== "logfeat");
+  if (name === "logfeat") _updateLogfeatFolderBanner();
+
+  filterFeatPlotKindOptions(name);
+  syncFeatCompareUi();
+  syncFeatFolderMode();
+  syncFeatReferenceUi();
+}
+
+// Hide options in the plot dropdown that don't apply to the current sub-tab.
+function filterFeatPlotKindOptions(subtab) {
+  const select = $("featPlotKind");
+  if (!select) return;
+  const allowsLog = subtab === "logfeat";
+  let firstVisible = null;
+  Array.from(select.options).forEach(opt => {
+    const isLog = isLogavgKind(opt.value);
+    const show = allowsLog ? isLog : !isLog;
+    opt.hidden = !show;
+    opt.disabled = !show;
+    if (show && firstVisible === null) firstVisible = opt.value;
+  });
+  // If the current selection became hidden, jump to the first visible option.
+  const cur = select.options[select.selectedIndex];
+  if (!cur || cur.hidden) {
+    if (firstVisible !== null) select.value = firstVisible;
+  }
+}
+
+function activeFeatSubTab() {
+  const btn = document.querySelector("#featSubTabs .sub-tab.active");
+  return btn ? btn.dataset.subtab : "single";
+}
+
+function syncFeatFolderMode() {
+  const kind = $("featPlotKind").value;
+  const cb = $("featFolderMode");
+  const supported = isLogavgKind(kind);
+  cb.disabled = !supported;
+  if (!supported) cb.checked = false;
+  $("featFolderTargetWrap").hidden = !cb.checked;
+  $("featFolderInfo").textContent = supported
+    ? (cb.checked
+        ? `→ Bar chart per file in: ${state.selectedFolder || "(no folder)"}`
+        : "✓ Available — tick to plot across the whole selected folder")
+    : "Folder mode supports only log(avg/max/min|Δ ...|) kinds";
+}
+
+function syncFeatReferenceUi() {
+  const useRef = $("featUseRefCycle").checked;
+  const controlsEnabled = !$("featPlotKind").disabled;
+  $("featRefCycle").disabled = !controlsEnabled || !useRef;
+}
+
+function _updateLogfeatFolderBanner() {
+  const nameEl = $("logfeatFolderName");
+  if (!nameEl) return;
+  const folder = state.selectedFolder || state.currentDir;
+  if (folder) {
+    const folderShort = folder.replace(/\\/g, "/").split("/").pop();
+    nameEl.textContent = folderShort;
+    nameEl.title = folder;       // full path on hover
+    nameEl.classList.remove("empty");
+  } else {
+    nameEl.textContent = "— double-click a subfolder in the sidebar —";
+    nameEl.title = "";
+    nameEl.classList.add("empty");
+  }
+}
+
+
+async function doFeaturePlot() {
+  showErr("featPlotErr", "");
+  const subtab = activeFeatSubTab();
+  const kind = $("featPlotKind").value;
+  const useReferenceCycle = $("featUseRefCycle").checked;
+
+  let referenceCycle = 0;
+  if (useReferenceCycle) {
+    const refRaw = $("featRefCycle").value.trim();
+    if (refRaw === "" || isNaN(Number(refRaw))) {
+      showErr("featPlotErr", "Enter a reference cycle (integer).");
+      return;
+    }
+    referenceCycle = parseInt(refRaw, 10);
+  }
+
+  // ── Plot Log feature sub-tab: folder scatter
+  if (subtab === "logfeat") {
+    if (!isLogavgKind(kind)) {
+      showErr("featPlotErr", "Pick a log(avg/max/min|Δ ...|) plot kind on this sub-tab.");
+      return;
+    }
+    const folder = state.selectedFolder || state.currentDir;
+    if (!folder) {
+      showErr("featPlotErr", "Open a subfolder in the sidebar first.");
+      return;
+    }
+    const targetRaw = $("featTargetCycleInline").value.trim();
+    if (targetRaw === "" || isNaN(Number(targetRaw))) {
+      showErr("featPlotErr", "Enter a target cycle.");
+      return;
+    }
+    const targetCycle = parseInt(targetRaw, 10);
+    if (useReferenceCycle && targetCycle === referenceCycle) {
+      showErr("featPlotErr", "Target cycle must differ from reference cycle.");
+      return;
+    }
+    const body = {
+      folder_path: folder,
+      kind,
+      reference_cycle: referenceCycle,
+      use_reference_cycle: useReferenceCycle,
+      target_cycle: targetCycle,
+      filter_outliers: $("featFilterOutliers").checked,
+    };
+
+    $("featPlotLoading").hidden = false;
+    $("featGenPlot").disabled = true;
+    try {
+      const response = await fetch("/api/folder-feature-logavg", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = Array.isArray(data.detail)
+          ? data.detail.map((item) => item.msg).join(" ")
+          : (data.detail || response.statusText);
+        showErr("featPlotErr", detail);
+        return;
+      }
+      await renderFeatureFigures(data.figures || []);
+    } catch (error) {
+      showErr("featPlotErr", String(error));
+    } finally {
+      $("featPlotLoading").hidden = true;
+      $("featGenPlot").disabled = false;
+    }
+    return;
+  }
+
+  // ── Plot single / Compare two
+  if (isLogavgKind(kind)) {
+    showErr("featPlotErr", "log(avg/max/min|Δ ...|) kinds belong to the 'Plot Log feature' sub-tab.");
+    return;
+  }
+  if (!state.sessionId) {
+    showErr("featPlotErr", "Load a file first.");
+    return;
+  }
+  const compareEnabled = subtab === "compare";
+  if (compareEnabled && !state.compareSessionId) {
+    showErr("featPlotErr", "Pick File A and File B in the dropdowns above.");
+    return;
+  }
+
+  const body = {
+    kind,
+    cycles: readCycleSpecFor("feat"),
+    reference_cycle: referenceCycle,
+    use_reference_cycle: useReferenceCycle,
+    filter_outliers: $("featFilterOutliers").checked,
+    compare_session_id: compareEnabled ? (state.compareSessionId || null) : null,
+  };
+
+  $("featPlotLoading").hidden = false;
+  $("featGenPlot").disabled = true;
+  try {
+    const response = await fetch(`/api/session/${state.sessionId}/feature-plot`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const detail = Array.isArray(data.detail)
+        ? data.detail.map((item) => item.msg).join(" ")
+        : (data.detail || response.statusText);
+      showErr("featPlotErr", detail);
+      return;
+    }
+    await renderFeatureFigures(data.figures || []);
+  } catch (error) {
+    showErr("featPlotErr", String(error));
+  } finally {
+    $("featPlotLoading").hidden = true;
+    $("featGenPlot").disabled = false;
+  }
+}
+
+async function renderFeatureFigures(figures) {
+  const grid = $("featPlotGrid");
+  // Remove just our feature charts from state.charts to avoid leaking
+  for (const id of Array.from(state.charts.keys())) {
+    if (id.startsWith("feat_plot_")) state.charts.delete(id);
+  }
+
+  if (!figures.length) {
+    grid.innerHTML = `
+      <div class="empty-state">
+        <strong>No valid plot data</strong>
+        <span>Try another plot type, reference cycle, or cycle selection.</span>
+      </div>
+    `;
+    return;
+  }
+
+  grid.innerHTML = "";
+  for (let index = 0; index < figures.length; index += 1) {
+    const figure = figures[index];
+    const title = figureTitle(figure, `Feature plot ${index + 1}`);
+    const chartId = `feat_plot_${Date.now()}_${index}`;
+    grid.insertAdjacentHTML("beforeend", plotCardMarkup(chartId, title));
+    const card = grid.lastElementChild;
+    const chart = $(chartId);
+    await Plotly.newPlot(chart, figure.data, figure.layout, plotConfig);
+    state.charts.set(chartId, chart);
+    wirePlotCard(card, chart, title);
+    buildAxisEditor(chart, card.querySelector(".axis-editor"));
+    chart.on("plotly_relayout", () => syncAxisEditorValues(chart));
   }
 }
 
@@ -1534,6 +2055,34 @@ function downloadBlob(bytes, filename, type) {
 
 $("pickFolder").addEventListener("click", pickFolder);
 $("genPlot").addEventListener("click", doPlot);
+$("cycleMode").addEventListener("change", syncCycleMode);
+syncCycleMode();
+
+$("featGenPlot").addEventListener("click", doFeaturePlot);
+$("featCycleMode").addEventListener("change", syncFeatCycleMode);
+syncFeatCycleMode();
+$("featPlotKind").addEventListener("change", syncFeatFolderMode);
+$("featUseRefCycle").addEventListener("change", syncFeatReferenceUi);
+$("featFolderMode").addEventListener("change", syncFeatFolderMode);
+syncFeatFolderMode();
+syncFeatReferenceUi();
+$("featCompareEnable").addEventListener("change", () => {
+  if (!$("featCompareEnable").checked) {
+    state.compareSessionId = null;
+    state.compareFileName = null;
+    $("featFileB").value = "";
+  }
+  syncFeatCompareUi();
+});
+$("featFileA").addEventListener("change", onFeatFileAChange);
+$("featFileB").addEventListener("change", onFeatFileBChange);
+syncFeatCompareUi();
+
+// Feature Analyse sub-tabs
+document.querySelectorAll("#featSubTabs .sub-tab").forEach(btn => {
+  btn.addEventListener("click", () => switchFeatSubTab(btn.dataset.subtab));
+});
+switchFeatSubTab("single");
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => switchTab(tab.dataset.tab));
 });

@@ -619,6 +619,40 @@ button.btn-danger:hover {
   gap: 1rem;
 }
 
+/* Feature Analyse sub-tabs (smaller pills inside the Feature panel) */
+.sub-tabs {
+  display: inline-flex;
+  gap: 0.3rem;
+  margin: 0.2rem 0 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #f1f5f9;
+  padding: 0.2rem;
+}
+
+.sub-tab {
+  min-height: 30px;
+  background: transparent;
+  color: var(--muted, #64748b);
+  padding: 0.32rem 0.78rem;
+  font-size: 0.83rem;
+  font-weight: 600;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.sub-tab:hover {
+  background: rgba(255,255,255,0.7);
+}
+
+.sub-tab.active {
+  background: #ffffff;
+  color: #1e3a5f;
+  box-shadow: 0 1px 3px rgba(15,23,42,0.08);
+}
+
 .inspection-toolbar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(220px, 420px);
@@ -916,6 +950,188 @@ button.btn-danger:hover {
   font-size: 0.84rem;
   font-weight: 700;
   margin: 0;
+}
+
+.feat-compare-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 0.85rem;
+  margin: 0.3rem 0 0.85rem;
+  background: linear-gradient(90deg, rgba(8,48,107,0.06), rgba(124,45,18,0.06));
+  border: 1px solid rgba(99,102,241,0.18);
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.feat-compare-fileslot {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.83rem;
+}
+
+.feat-compare-label {
+  font-weight: 600;
+  color: #475569;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.feat-compare-label .dot {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.feat-compare-label .dot.file-a {
+  background: linear-gradient(135deg, rgb(8,48,107), rgb(103,0,13));
+}
+
+.feat-compare-label .dot.file-b {
+  background: linear-gradient(135deg, rgb(124,45,18), rgb(19,78,74));
+}
+
+.feat-compare-fileslot select {
+  width: 14rem;
+  max-width: 18rem;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.78rem;
+  padding: 0.4rem 0.55rem;
+}
+
+.feat-compare-info {
+  font-size: 0.78rem;
+  color: #64748b;
+  font-style: italic;
+}
+
+/* ── Plot Log feature: selected-folder indicator ───────────────────────── */
+.feat-mode-help {
+  margin: 0 0 0.85rem;
+  padding: 0.6rem 0.85rem;
+  background: rgba(59,130,246,0.06);
+  border: 1px solid rgba(59,130,246,0.18);
+  border-left: 3px solid #3b82f6;
+  border-radius: 8px;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: #334155;
+}
+.feat-mode-help strong { color: #1e293b; font-weight: 600; }
+.feat-mode-help:empty { display: none; }
+
+.logfeat-folder-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem 0.9rem;
+  margin: 0 0 0.75rem;
+  background: rgba(16,185,129,0.07);
+  border: 1px solid rgba(16,185,129,0.28);
+  border-radius: 8px;
+  font-size: 0.84rem;
+}
+.logfeat-folder-icon { font-size: 1rem; line-height: 1; }
+.logfeat-folder-label { font-weight: 600; color: #065f46; white-space: nowrap; }
+.logfeat-folder-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  color: #1e293b;
+  word-break: break-all;
+}
+.logfeat-folder-name.empty { color: #94a3b8; font-family: inherit; font-style: italic; }
+
+.feat-folder-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+  padding: 0.55rem 0.85rem;
+  margin: 0 0 0.85rem;
+  background: rgba(59,130,246,0.06);
+  border: 1px solid rgba(59,130,246,0.2);
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.feat-folder-bar .check-field {
+  font-weight: 600;
+  font-size: 0.84rem;
+}
+
+.feat-folder-target {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.feat-folder-target input[type="number"] {
+  width: 6rem;
+  padding: 0.4rem 0.55rem;
+  -moz-appearance: textfield;
+}
+
+.feat-folder-target input[type="number"]::-webkit-outer-spin-button,
+.feat-folder-target input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.feat-folder-info {
+  font-size: 0.78rem;
+  color: #64748b;
+  font-style: italic;
+}
+
+.cycle-field .cycle-input-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.cycle-field .cycle-input-group > select {
+  width: auto;
+  min-width: 8rem;
+}
+
+.cycle-field .cycle-input-group > input[type="text"] {
+  min-width: 12rem;
+  flex: 1;
+}
+
+.range-inputs {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.range-inputs input[type="number"] {
+  width: 4.5rem;
+  min-width: 0;
+  padding: 0.42rem 0.5rem;
+  text-align: center;
+  -moz-appearance: textfield;
+}
+
+.range-inputs input[type="number"]::-webkit-outer-spin-button,
+.range-inputs input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.range-sep {
+  font-size: 0.78rem;
+  color: var(--muted, #6b7280);
+  font-weight: 600;
+  user-select: none;
 }
 
 .check-field input {

@@ -20,7 +20,11 @@ from pydantic import BaseModel, Field
 
 from webapp.inspect_pkl import compute_data_meta, summarize_batteryml_pkl
 from webapp.plotly_charts import (
+    build_feature_compare_figures,
+    build_feature_figures_for_kind,
     build_figures_for_kind,
+    build_folder_logavg_figure,
+    compute_logavg_and_lifetime_for_file,
     capacity_fade_summary,
     compute_cell_metrics,
     extract_temperature_from_name,
@@ -33,7 +37,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DATA_DIR = PROJECT_ROOT / "DATA" / "BatteryML"
 CACHE_DIR = Path(__file__).resolve().parent / "cache"
 CACHE_FILE = CACHE_DIR / "folder_cycle_cache.json"
-CACHE_VERSION = 3
+CACHE_VERSION = 4
 DATA_INFO_DIR = PROJECT_ROOT / "DATA_info"
 
 app = FastAPI(title="Battery AI Analyzer")
@@ -102,6 +106,28 @@ class FolderPathBody(BaseModel):
 class PlotBody(BaseModel):
     kind: str
     cycles: str | None = None
+    min_dv: float = 1e-4
+    min_dq: float = 1e-5
+    filter_outliers: bool = False
+
+
+class FeaturePlotBody(BaseModel):
+    kind: str
+    cycles: str | None = None
+    reference_cycle: int = 0
+    use_reference_cycle: bool = True
+    min_dv: float = 1e-4
+    min_dq: float = 1e-5
+    filter_outliers: bool = False
+    compare_session_id: str | None = None  # optional: overlay a second file
+
+
+class FolderLogavgBody(BaseModel):
+    folder_path: str
+    kind: str               # one of the logavg_*_vs_cycle kinds
+    reference_cycle: int = 0
+    use_reference_cycle: bool = True
+    target_cycle: int = 1
     min_dv: float = 1e-4
     min_dq: float = 1e-5
     filter_outliers: bool = False
@@ -520,6 +546,118 @@ def plot_session(session_id: str, body: PlotBody) -> JSONResponse:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return _plotly_response(figures)
+
+
+@app.post("/api/session/{session_id}/feature-plot")
+def feature_plot_session(session_id: str, body: FeaturePlotBody) -> JSONResponse:
+    s = _get_session(session_id)
+    obj = s["obj"]
+    cell_name = s["path"].stem if isinstance(s.get("path"), Path) else s["name"]
+
+    try:
+        if body.compare_session_id:
+            sb = _get_session(body.compare_session_id)
+            obj_b = sb["obj"]
+            cell_name_b = sb["path"].stem if isinstance(sb.get("path"), Path) else sb["name"]
+            figures = build_feature_compare_figures(
+                obj, obj_b,
+                cell_name_a=cell_name,
+                cell_name_b=cell_name_b,
+                kind=body.kind,
+                cycles=body.cycles,
+                reference_cycle=body.reference_cycle,
+                use_reference_cycle=body.use_reference_cycle,
+                min_dv=body.min_dv,
+                min_dq=body.min_dq,
+                filter_outliers=body.filter_outliers,
+            )
+        else:
+            figures = build_feature_figures_for_kind(
+                obj,
+                cell_name=cell_name,
+                kind=body.kind,
+                cycles=body.cycles,
+                reference_cycle=body.reference_cycle,
+                use_reference_cycle=body.use_reference_cycle,
+                min_dv=body.min_dv,
+                min_dq=body.min_dq,
+                filter_outliers=body.filter_outliers,
+            )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return _plotly_response(figures)
+
+
+@app.post("/api/folder-feature-logavg")
+async def folder_feature_logavg(body: FolderLogavgBody) -> JSONResponse:
+    """For each .pkl in a folder, compute log⟨|Δ metric|⟩ at one target cycle (vs reference)."""
+    folder = Path(body.folder_path)
+    if not folder.is_dir():
+        raise HTTPException(status_code=400, detail=f"Not a folder: {folder}")
+
+    pkl_files = _list_pkl_files(folder)
+    if not pkl_files:
+        raise HTTPException(status_code=400, detail=f"No .pkl files in {folder}")
+
+    file_results: list[tuple[str, float, int | None, int | None]] = []
+    skipped = 0
+
+    def _one_file(path: Path) -> tuple[str, float, int | None, int | None] | None:
+        try:
+            obj = load_batteryml_pickle(path)
+            triple = compute_logavg_and_lifetime_for_file(
+                obj,
+                kind=body.kind,
+                reference_cycle=body.reference_cycle,
+                target_cycle=body.target_cycle,
+                use_reference_cycle=body.use_reference_cycle,
+                min_dv=body.min_dv,
+                min_dq=body.min_dq,
+            )
+            if triple is None:
+                return None
+            log_val, eol, max_c = triple
+            return (path.name, log_val, eol, max_c)
+        except Exception:
+            return None
+
+    # Run sequentially in a thread to avoid blocking the event loop.
+    for path in pkl_files:
+        result = await asyncio.to_thread(_one_file, path)
+        if result is None:
+            skipped += 1
+            continue
+        file_results.append(result)
+
+    if not file_results:
+        cycle_detail = (
+            f"cycle {body.target_cycle} (ref {body.reference_cycle})"
+            if body.use_reference_cycle
+            else f"cycle {body.target_cycle}"
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=(f"No files in {folder.name} produced a valid log-avg "
+                    f"value at {cycle_detail}."),
+        )
+
+    try:
+        figures = build_folder_logavg_figure(
+            file_results,
+            folder.name,
+            kind=body.kind,
+            reference_cycle=body.reference_cycle,
+            target_cycle=body.target_cycle,
+            use_reference_cycle=body.use_reference_cycle,
+            filter_outliers=body.filter_outliers,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
     return _plotly_response(figures)
 
