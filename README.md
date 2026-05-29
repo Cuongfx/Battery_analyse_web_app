@@ -230,7 +230,27 @@ The repository provides Hugging Face / Zenodo download links covering all includ
 
 ## Citation
 
-If you use this tool with the BatteryLife dataset in your research, please cite:
+### This tool
+
+If you use the **Battery AI Analyzer** in your research, please cite it as:
+
+> Pham, Manh Cuong. *Battery AI Analyzer: A local browser-based viewer for BatteryML cycle-life data.* RPTU Kaiserslautern-Landau, 2026. https://github.com/Cuongfx/Battery_analyse_web_app
+
+```bibtex
+@software{pham_battery_ai_analyzer_2026,
+  author  = {Pham, Manh Cuong},
+  title   = {Battery AI Analyzer: A Local Browser-Based Viewer for
+             BatteryML Cycle-Life Data},
+  year    = {2026},
+  url     = {https://github.com/Cuongfx/Battery_analyse_web_app},
+  note    = {RPTU Kaiserslautern-Landau.
+             https://eit.rptu.de/fgs/meas/team/m-sc-manh-cuong-pham}
+}
+```
+
+### BatteryLife dataset
+
+If you also use the BatteryLife dataset, please cite:
 
 ```bibtex
 @inproceedings{10.1145/3711896.3737372,
@@ -262,3 +282,4 @@ Tan et al., *BatteryLife: A Comprehensive Dataset and Benchmark for Battery Life
 👨‍💻 **Manh Cuong Pham**
 📧 mpham@rptu.de
 💼 PhD Candidate at RPTU Kaiserslautern-Landau
+🔗 [Team page](https://eit.rptu.de/fgs/meas/team/m-sc-manh-cuong-pham) · [GitHub repo](https://github.com/Cuongfx/Battery_analyse_web_app)
