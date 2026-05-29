@@ -63,11 +63,18 @@
     </aside>
 
     <main class="workspace">
-      <nav class="tabs" aria-label="Workspace views">
-        <button type="button" class="tab active" data-tab="general">General inspection</button>
-        <button type="button" class="tab" data-tab="deep">Analyse</button>
-        <button type="button" class="tab" data-tab="feature">Feature Analyse</button>
-      </nav>
+      <div class="topbar">
+        <nav class="tabs" aria-label="Workspace views">
+          <button type="button" class="tab active" data-tab="general">General inspection</button>
+          <button type="button" class="tab" data-tab="deep">Analyse</button>
+          <button type="button" class="tab" data-tab="feature">Feature Analyse</button>
+          <button type="button" class="tab" data-tab="summary">Data summary</button>
+        </nav>
+        <button type="button" id="themeToggle" class="theme-toggle" aria-label="Toggle dark mode" title="Toggle dark / light mode">
+          <span class="theme-toggle-icon">🌙</span>
+          <span class="theme-toggle-label">Dark</span>
+        </button>
+      </div>
 
       <section class="tab-panel active" id="generalPanel">
         <section class="inspection-toolbar">
@@ -335,9 +342,25 @@
           </div>
         </section>
       </section>
+
+      <section class="tab-panel" id="summaryPanel" hidden>
+        <section class="summary-head">
+          <div>
+            <h2>Data summary</h2>
+            <p class="muted">Battery dataset collection grouped by electrode chemistry — adapted from <em>Table 1, battery_data.pdf</em>.</p>
+          </div>
+        </section>
+        <div id="summaryStats" class="summary-stats"></div>
+        <div id="summaryFamilies" class="summary-families"></div>
+        <section class="summary-table-card">
+          <div class="summary-table-wrap">
+            <table class="summary-table" id="summaryTable"></table>
+          </div>
+        </section>
+      </section>
     </main>
   </div>
 
-  <script src="/app.js?v=37"></script>
+  <script src="/app.js?v=40"></script>
 </body>
 </html>

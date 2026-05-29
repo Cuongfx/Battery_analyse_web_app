@@ -28,6 +28,194 @@ const plotConfig = {
   modeBarButtonsToRemove: ["toImage"],
 };
 
+// ── Theme (light / dark) ───────────────────────────────────────────────────
+const THEME_KEY = "batteryAi.theme";
+
+const PLOT_THEME = {
+  light: { paper: "#FFFFFF", plot: "#F6F8FB", font: "#172033", grid: "#E7ECF3", line: "#CDD6E3" },
+  dark:  { paper: "#18202b", plot: "#141b24", font: "#e6edf6", grid: "#2c3848", line: "#3d4c60" },
+};
+
+function currentTheme() {
+  return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+}
+
+// Re-colour one Plotly chart to match the active theme.
+function themePlot(chart) {
+  if (!chart || !chart.layout || typeof Plotly === "undefined") return;
+  const t = PLOT_THEME[currentTheme()];
+  const upd = {
+    paper_bgcolor: t.paper,
+    plot_bgcolor: t.plot,
+    "font.color": t.font,
+    "legend.font.color": t.font,
+    "title.font.color": t.font,
+  };
+  for (const key of Object.keys(chart.layout)) {
+    if (/^[xy]axis\d*$/.test(key)) {
+      upd[`${key}.gridcolor`] = t.grid;
+      upd[`${key}.zerolinecolor`] = t.line;
+      upd[`${key}.linecolor`] = t.line;
+      upd[`${key}.tickcolor`] = t.line;
+    }
+  }
+  try { Plotly.relayout(chart, upd); } catch (_) {}
+}
+
+function themeAllPlots() {
+  document.querySelectorAll(".js-plotly-plot").forEach(themePlot);
+}
+
+function applyTheme(theme) {
+  const dark = theme === "dark";
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  const btn = $("themeToggle");
+  if (btn) {
+    btn.querySelector(".theme-toggle-icon").textContent = dark ? "☀️" : "🌙";
+    btn.querySelector(".theme-toggle-label").textContent = dark ? "Light" : "Dark";
+  }
+  themeAllPlots();
+}
+
+function initTheme() {
+  let saved = null;
+  try { saved = localStorage.getItem(THEME_KEY); } catch (_) {}
+  if (!saved) {
+    saved = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  applyTheme(saved);
+}
+
+function toggleTheme() {
+  const next = currentTheme() === "dark" ? "light" : "dark";
+  try { localStorage.setItem(THEME_KEY, next); } catch (_) {}
+  applyTheme(next);
+}
+
+// ── Data summary tab (source: Table 1, battery_data.pdf) ────────────────────
+const CHEM_FAMILIES = {
+  LFP:        { label: "LFP",            cls: "chem-LFP" },
+  "NMC/NCA":  { label: "NMC / NCA",      cls: "chem-NMCNCA" },
+  LCO:        { label: "LCO",            cls: "chem-LCO" },
+  "LCO+NMC":  { label: "LCO + NMC",      cls: "chem-LCONMC" },
+  "LFP+NCA+NMC": { label: "LFP + NCA + NMC", cls: "chem-LFPNCANMC" },
+  "Na-ion":   { label: "Na-ion",         cls: "chem-Naion" },
+  "Zn-MnO₂":  { label: "Zn–MnO₂",        cls: "chem-ZnMnO2" },
+};
+
+// Negative-electrode materials → coloured badge (same visual language as chemistry)
+const NEG_FAMILIES = {
+  Graphite: { label: "Graphite", cls: "neg-graphite" },
+  Carbon:   { label: "Carbon",   cls: "neg-carbon" },
+  Zinc:     { label: "Zinc",     cls: "neg-zinc" },
+  "—":      { label: "—",        cls: "neg-none" },
+};
+
+// pos     → short cathode label shown in the badge
+// posFull → full chemical formula revealed on hover
+// neg     → negative-electrode material key (see NEG_FAMILIES)
+const BATTERY_DATASETS = [
+  { name: "HUST", format: "18650", cells: 77, pos: "LFP", posFull: "LiFePO₄", neg: "Graphite", cap: "1.1", temp: "30", fam: "LFP" },
+  { name: "MATR", format: "18650", cells: 169, pos: "LFP", posFull: "LiFePO₄", neg: "Graphite", cap: "1.1", temp: "30", fam: "LFP" },
+  { name: "CALB", format: "", cells: 27, pos: "NMC", posFull: "Lithium nickel manganese cobalt oxide", neg: "Graphite", cap: "58", temp: "0, 25, 35, 45", fam: "NMC/NCA" },
+  { name: "ISU", format: "502030 Li-polymer", cells: 240, pos: "NMC", posFull: "Lithium nickel manganese cobalt oxide", neg: "Graphite", cap: "0.25", temp: "30", fam: "NMC/NCA" },
+  { name: "MICH_EXP", format: "pouch", cells: 12, pos: "NMC", posFull: "NMC111", neg: "Graphite", cap: "5.0", temp: "−5, 25, 45", fam: "NMC/NCA" },
+  { name: "MICH", format: "", cells: 40, pos: "NMC", posFull: "NMC111", neg: "Graphite", cap: "2.36", temp: "25, 45", fam: "NMC/NCA" },
+  { name: "RWTH", format: "", cells: 48, pos: "NMC", posFull: "Lithium nickel manganese cobalt oxide", neg: "Carbon", cap: "3", temp: "25", fam: "NMC/NCA" },
+  { name: "SDU", format: "18650", cells: 86, pos: "NMC", posFull: "Lithium nickel manganese cobalt oxide", neg: "Graphite", cap: "2.4", temp: "25", fam: "NMC/NCA" },
+  { name: "STANFORD", format: "18650", cells: 41, pos: "NMC", posFull: "LiNi₀.₅Mn₀.₃Co₀.₂O₂", neg: "Graphite", cap: "0.24", temp: "30", fam: "NMC/NCA" },
+  { name: "STANFORD 2", format: "18650", cells: 181, pos: "NMC", posFull: "LiNi₀.₅Mn₀.₃Co₀.₂O₂", neg: "Graphite", cap: "0.24", temp: "30", fam: "NMC/NCA" },
+  { name: "XJTU", format: "", cells: 23, pos: "NMC", posFull: "LiNi₀.₅Co₀.₂Mn₀.₃O₂", neg: "Graphite", cap: "2", temp: "20", fam: "NMC/NCA" },
+  { name: "TONGJI", format: "18650", cells: 108, pos: "NCA / NMC", posFull: "Li₀.₈₆Ni₀.₈₆Co₀.₁₁Al₀.₀₃O₂ / Li₀.₈₄(Ni₀.₈₃Co₀.₁₁Mn₀.₀₇)O₂", neg: "Graphite", cap: "2.5 / 3.5", temp: "multiple", fam: "NMC/NCA" },
+  { name: "CALCE", format: "", cells: 13, pos: "LCO", posFull: "LiCoO₂", neg: "Graphite", cap: "1.1", temp: "25", fam: "LCO" },
+  { name: "HNEI", format: "", cells: 14, pos: "LCO + NMC", posFull: "LiCoO₂ & LiNi₀.₄Co₀.₄Mn₀.₂O₂", neg: "Graphite", cap: "2.8", temp: "25", fam: "LCO+NMC" },
+  { name: "UL", format: "18650", cells: 10, pos: "LCO + NMC", posFull: "LiCoO₂ & LiNi₀.₄Co₀.₄Mn₀.₂O₂", neg: "Graphite", cap: "3.4", temp: "23", fam: "LCO+NMC" },
+  { name: "SNL", format: "18650", cells: 52, pos: "LFP + NCA + NMC", posFull: "LiFePO₄ / LiNi₀.₈₁Co₀.₁₄Al₀.₀₅O₂ / LiNi₀.₈₄Mn₀.₀₆Co₀.₁O₂", neg: "Graphite", cap: "1.1 / 3.2 / 3.0", temp: "15, 25, 35", fam: "LFP+NCA+NMC" },
+  { name: "NA-ION", format: "18650", cells: 31, pos: "Na-ion", posFull: "Sodium-ion cathode", neg: "—", cap: "1.0", temp: "25", fam: "Na-ion" },
+  { name: "ZN-COIN", format: "", cells: 95, pos: "Zn–MnO₂", posFull: "Manganese dioxide (MnO₂) cathode", neg: "Zinc", cap: "10", temp: "25", fam: "Zn-MnO₂" },
+];
+
+let _summaryRendered = false;
+function renderDataSummary() {
+  if (_summaryRendered) return;          // static content — build once
+  _summaryRendered = true;
+
+  const rows = BATTERY_DATASETS;
+  const known = rows.filter((r) => r.cells != null);
+  const totalCells = known.reduce((s, r) => s + r.cells, 0);
+  const families = [...new Set(rows.map((r) => r.fam))];
+
+  const stat = (title, value, sub) => `
+    <article class="stat-card">
+      <div class="stat-title">${escapeHtml(title)}</div>
+      <div class="stat-value">${value}</div>
+      ${sub ? `<div class="stat-sub muted">${escapeHtml(sub)}</div>` : ""}
+    </article>`;
+
+  $("summaryStats").innerHTML = [
+    stat("Datasets", rows.length),
+    stat("Cells (total)", totalCells.toLocaleString()),
+    stat("Chemistry families", families.length),
+  ].join("");
+
+  $("summaryFamilies").innerHTML = families
+    .map((f) => {
+      const meta = CHEM_FAMILIES[f] || { label: f, cls: "" };
+      const n = rows.filter((r) => r.fam === f).length;
+      return `<span class="chem-badge fam-chip ${meta.cls}" data-fam="${escapeHtml(f)}" role="button" tabindex="0" title="Click to filter by ${escapeHtml(meta.label)}">${escapeHtml(meta.label)} · ${n}</span>`;
+    })
+    .join("");
+  $("summaryFamilies").onclick = (e) => {
+    const chip = e.target.closest(".fam-chip");
+    if (chip) setSummaryFilter(chip.dataset.fam);
+  };
+
+  const head = `
+    <thead><tr>
+      <th>Dataset</th>
+      <th class="num">Cells</th>
+      <th>Positive electrode</th>
+      <th>Negative electrode</th>
+      <th class="num">Nominal capacity (Ah)</th>
+      <th class="num">Temperature (°C)</th>
+      <th>Chemistry</th>
+    </tr></thead>`;
+
+  const body = rows
+    .map((r) => {
+      const meta = CHEM_FAMILIES[r.fam] || { label: r.fam, cls: "" };
+      const negMeta = NEG_FAMILIES[r.neg] || { label: r.neg, cls: "neg-none" };
+      const posTitle = r.posFull ? ` title="${escapeHtml(r.posFull)}"` : "";
+      return `<tr data-fam="${escapeHtml(r.fam)}">
+        <td><span class="ds-name">${escapeHtml(r.name)}</span>${r.format ? `<span class="ds-format">${escapeHtml(r.format)}</span>` : ""}</td>
+        <td class="num ds-cells">${r.cells != null ? r.cells.toLocaleString() : "—"}</td>
+        <td><span class="chem-badge ${meta.cls} has-tip"${posTitle}>${escapeHtml(r.pos)}</span></td>
+        <td><span class="neg-badge ${negMeta.cls}">${escapeHtml(negMeta.label)}</span></td>
+        <td class="num">${escapeHtml(r.cap)}</td>
+        <td class="num">${escapeHtml(r.temp)}</td>
+        <td><span class="chem-badge ${meta.cls}">${escapeHtml(meta.label)}</span></td>
+      </tr>`;
+    })
+    .join("");
+
+  $("summaryTable").innerHTML = head + `<tbody>${body}</tbody>`;
+}
+
+// Click a family chip to filter the table to that chemistry; click it again to reset.
+let _summaryActiveFam = null;
+function setSummaryFilter(fam) {
+  _summaryActiveFam = _summaryActiveFam === fam ? null : fam;
+  const active = _summaryActiveFam;
+  document.querySelectorAll("#summaryTable tbody tr").forEach((tr) => {
+    tr.hidden = active != null && tr.dataset.fam !== active;
+  });
+  document.querySelectorAll("#summaryFamilies .fam-chip").forEach((chip) => {
+    const on = active == null || chip.dataset.fam === active;
+    chip.classList.toggle("chip-dim", !on);
+    chip.classList.toggle("chip-selected", active != null && chip.dataset.fam === active);
+  });
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -111,9 +299,12 @@ function switchTab(name) {
   $("generalPanel").hidden = name !== "general";
   $("deepPanel").hidden = name !== "deep";
   $("featurePanel").hidden = name !== "feature";
+  $("summaryPanel").hidden = name !== "summary";
   $("generalPanel").classList.toggle("active", name === "general");
   $("deepPanel").classList.toggle("active", name === "deep");
   $("featurePanel").classList.toggle("active", name === "feature");
+  $("summaryPanel").classList.toggle("active", name === "summary");
+  if (name === "summary") renderDataSummary();
   setTimeout(() => {
     state.charts.forEach((chart) => Plotly.Plots.resize(chart));
   }, 0);
@@ -866,6 +1057,7 @@ async function renderFolderInspection(data) {
   const card = grid.lastElementChild;
   const chart = $(chartId);
   await Plotly.newPlot(chart, figure.data, figure.layout, plotConfig);
+  themePlot(chart);
 
   // Store original trace data for sort reset
   const t0 = figure.data[0];
@@ -1680,6 +1872,7 @@ async function renderFeatureFigures(figures) {
     const card = grid.lastElementChild;
     const chart = $(chartId);
     await Plotly.newPlot(chart, figure.data, figure.layout, plotConfig);
+    themePlot(chart);
     state.charts.set(chartId, chart);
     wirePlotCard(card, chart, title);
     buildAxisEditor(chart, card.querySelector(".axis-editor"));
@@ -1720,6 +1913,7 @@ async function renderFigures(figures) {
     const card = grid.lastElementChild;
     const chart = $(chartId);
     await Plotly.newPlot(chart, figure.data, figure.layout, plotConfig);
+    themePlot(chart);
     state.charts.set(chartId, chart);
     wirePlotCard(card, chart, title);
     buildAxisEditor(chart, card.querySelector(".axis-editor"));
@@ -2114,6 +2308,9 @@ $("importCacheInput").addEventListener("change", (e) => {
   if (e.target.files[0]) importCacheJson(e.target.files[0]);
   e.target.value = "";
 });
+
+initTheme();
+$("themeToggle").addEventListener("click", toggleTheme);
 
 loadPersistedFolderCache();
 

@@ -13,6 +13,32 @@
   --warning: #b66a00;
   --danger: #d92d20;
   --shadow: 0 14px 35px rgba(16, 24, 40, 0.08);
+  /* surfaces that flip in dark mode */
+  --surface: #ffffff;          /* inputs, secondary buttons, tab bar, badges */
+  --surface-soft: #f1f5f9;     /* sub-tab bar, soft chips */
+  --sidebar-bg: rgba(255, 255, 255, 0.82);
+  --info-text: #1e3a5f;        /* dataset-info / temp text */
+}
+
+[data-theme="dark"] {
+  --bg: #0e131b;
+  --panel: #18202b;
+  --panel-soft: #212b39;
+  --border: #2c3848;
+  --border-strong: #3d4c60;
+  --text: #e6edf6;
+  --muted: #93a1b4;
+  --accent: #3b82f6;
+  --accent-strong: #60a5fa;
+  --accent-soft: #1d2a44;
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #f87171;
+  --shadow: 0 14px 35px rgba(0, 0, 0, 0.55);
+  --surface: #232e3d;
+  --surface-soft: #1c2533;
+  --sidebar-bg: rgba(17, 23, 31, 0.92);
+  --info-text: #cfe0f5;
 }
 
 * {
@@ -59,7 +85,7 @@ button:disabled {
 }
 
 button.secondary {
-  background: #ffffff;
+  background: var(--surface);
   color: var(--text);
   border: 1px solid var(--border);
 }
@@ -81,7 +107,7 @@ select {
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--surface);
   color: var(--text);
   min-height: 38px;
   padding: 0.5rem 0.65rem;
@@ -106,7 +132,7 @@ button:focus-visible {
   gap: 1rem;
   padding: 1.25rem;
   border-right: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--sidebar-bg);
 }
 
 .workspace {
@@ -233,7 +259,7 @@ button:focus-visible {
   min-width: 34px;
   height: 22px;
   border-radius: 6px;
-  background: #ffffff;
+  background: var(--surface);
   border: 1px solid var(--border);
   color: var(--muted);
   font-size: 0.68rem;
@@ -497,7 +523,7 @@ button:focus-visible {
   margin: 0;
   font-size: 0.9rem;
   line-height: 1.6;
-  color: #1e3a5f;
+  color: var(--info-text);
 }
 
 /* ── Folder cache panel ────────────────────────────── */
@@ -591,13 +617,45 @@ button.btn-danger:hover {
   white-space: nowrap;
 }
 
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 38px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.84rem;
+  font-weight: 700;
+  box-shadow: var(--shadow);
+}
+
+.theme-toggle:hover {
+  background: var(--panel-soft);
+}
+
+.theme-toggle-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
 .tabs {
   display: inline-flex;
   gap: 0.35rem;
-  margin-bottom: 1rem;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--surface);
   padding: 0.25rem;
 }
 
@@ -626,7 +684,7 @@ button.btn-danger:hover {
   margin: 0.2rem 0 0.8rem;
   border: 1px solid var(--border);
   border-radius: 7px;
-  background: #f1f5f9;
+  background: var(--surface-soft);
   padding: 0.2rem;
 }
 
@@ -644,12 +702,12 @@ button.btn-danger:hover {
 }
 
 .sub-tab:hover {
-  background: rgba(255,255,255,0.7);
+  background: var(--accent-soft);
 }
 
 .sub-tab.active {
-  background: #ffffff;
-  color: #1e3a5f;
+  background: var(--surface);
+  color: var(--info-text);
   box-shadow: 0 1px 3px rgba(15,23,42,0.08);
 }
 
@@ -752,7 +810,7 @@ button.btn-danger:hover {
   margin: 0.45rem 0 0;
   font-size: 0.86rem;
   line-height: 1.5;
-  color: #1e3a5f;
+  color: var(--info-text);
 }
 
 .dataset-info-temp strong {
@@ -1443,3 +1501,170 @@ button.btn-danger:hover {
     flex-direction: column;
   }
 }
+
+/* ── Dark-mode overrides for components with literal colors ─────────────── */
+[data-theme="dark"] #datasetInfoCard {
+  background: linear-gradient(135deg, #16263f 0%, #15281f 100%);
+  border-color: #2a4060;
+}
+[data-theme="dark"] button.btn-danger {
+  border-color: rgba(248, 113, 113, 0.45);
+  color: #fca5a5;
+}
+[data-theme="dark"] button.btn-danger:hover {
+  background: rgba(248, 113, 113, 0.14);
+}
+[data-theme="dark"] .temp-pill {
+  background: #1d2a44;
+  color: #93c5fd;
+  border-color: #2d4366;
+}
+[data-theme="dark"] .temp-pill--none {
+  background: #212b39;
+  color: #6b7888;
+  border-color: #2c3848;
+}
+[data-theme="dark"] .feat-compare-bar {
+  background: linear-gradient(90deg, rgba(96, 165, 250, 0.10), rgba(251, 146, 60, 0.10));
+  border-color: rgba(129, 140, 248, 0.3);
+}
+[data-theme="dark"] .feat-compare-label,
+[data-theme="dark"] .feat-folder-target { color: var(--muted); }
+[data-theme="dark"] .feat-compare-info,
+[data-theme="dark"] .feat-folder-info { color: var(--muted); }
+[data-theme="dark"] .feat-mode-help {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: #c4d2e4;
+}
+[data-theme="dark"] .feat-mode-help strong { color: var(--text); }
+[data-theme="dark"] .feat-folder-bar {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+[data-theme="dark"] .logfeat-folder-bar {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.35);
+}
+[data-theme="dark"] .logfeat-folder-label { color: #6ee7b7; }
+[data-theme="dark"] .logfeat-folder-name { color: var(--text); }
+
+/* ── Data summary tab ──────────────────────────────────────────────────── */
+.summary-head {
+  padding: 1rem 1.1rem;
+}
+.summary-head h2 { margin: 0; font-size: 1.45rem; }
+
+.summary-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.9rem;
+}
+@media (max-width: 760px) {
+  .summary-stats { grid-template-columns: repeat(2, 1fr); }
+}
+
+.summary-families {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.summary-table-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.summary-table-wrap { overflow-x: auto; }
+
+.summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.summary-table th,
+.summary-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 0.6rem 0.8rem;
+  text-align: left;
+  vertical-align: top;
+}
+.summary-table th {
+  position: sticky;
+  top: 0;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.summary-table tbody tr:hover { background: var(--panel-soft); }
+.summary-table .ds-name { font-weight: 700; color: var(--text); white-space: nowrap; }
+.summary-table .ds-format { display: block; font-weight: 500; font-size: 0.74rem; color: var(--muted); }
+.summary-table .ds-cells { font-variant-numeric: tabular-nums; font-weight: 700; }
+.summary-table .ds-sub { font-size: 0.76rem; color: var(--muted); }
+.summary-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* chemistry badge */
+.chem-badge {
+  display: inline-block;
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.chem-LFP        { background: rgba(16,185,129,0.14);  color: #047857; border-color: rgba(16,185,129,0.35); }
+.chem-NMCNCA     { background: rgba(59,130,246,0.14);  color: #1d4ed8; border-color: rgba(59,130,246,0.35); }
+.chem-LCO        { background: rgba(245,158,11,0.16);  color: #b45309; border-color: rgba(245,158,11,0.4); }
+.chem-LCONMC     { background: rgba(249,115,22,0.16);  color: #c2410c; border-color: rgba(249,115,22,0.4); }
+.chem-LFPNCANMC  { background: rgba(20,184,166,0.16);  color: #0f766e; border-color: rgba(20,184,166,0.4); }
+.chem-Naion      { background: rgba(139,92,246,0.16);  color: #6d28d9; border-color: rgba(139,92,246,0.4); }
+.chem-ZnMnO2     { background: rgba(244,63,94,0.14);   color: #be123c; border-color: rgba(244,63,94,0.35); }
+
+[data-theme="dark"] .chem-LFP        { color: #6ee7b7; }
+[data-theme="dark"] .chem-NMCNCA     { color: #93c5fd; }
+[data-theme="dark"] .chem-LCO        { color: #fcd34d; }
+[data-theme="dark"] .chem-LCONMC     { color: #fdba74; }
+[data-theme="dark"] .chem-LFPNCANMC  { color: #5eead4; }
+[data-theme="dark"] .chem-Naion      { color: #c4b5fd; }
+[data-theme="dark"] .chem-ZnMnO2     { color: #fda4af; }
+
+/* full-formula-on-hover hint for the positive-electrode badge */
+.chem-badge.has-tip { cursor: help; }
+
+/* clickable family chips (filter the summary table) */
+.fam-chip { cursor: pointer; user-select: none; transition: box-shadow 0.12s, opacity 0.12s; }
+.fam-chip:hover { box-shadow: 0 1px 5px rgba(16, 24, 40, 0.18); }
+.fam-chip.chip-selected { box-shadow: 0 0 0 2px var(--accent); }
+.fam-chip.chip-dim {
+  background: var(--surface-soft);
+  color: var(--muted);
+  border-color: var(--border);
+  opacity: 0.7;
+}
+
+/* negative-electrode badges (same pill style as chemistry) */
+.neg-badge {
+  display: inline-block;
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.neg-graphite { background: rgba(100,116,139,0.16); color: #475569; border-color: rgba(100,116,139,0.35); }
+.neg-carbon   { background: rgba(71,85,105,0.16);  color: #334155; border-color: rgba(71,85,105,0.4); }
+.neg-zinc     { background: rgba(8,145,178,0.14);   color: #0e7490; border-color: rgba(8,145,178,0.35); }
+.neg-none     { background: var(--surface-soft);    color: var(--muted); border-color: var(--border); }
+
+[data-theme="dark"] .neg-graphite { color: #cbd5e1; }
+[data-theme="dark"] .neg-carbon   { color: #b6c2d2; }
+[data-theme="dark"] .neg-zinc     { color: #67e8f9; }
