@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Battery AI Analyzer</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <header class="brand">
+        <div>
+          <h1>Battery AI Analyzer</h1>
+          <p class="brand-credit">Design by CuongFX</p>
+        </div>
+      </header>
+
+      <section class="panel">
+        <div class="panel-title">Data source</div>
+        <div class="folder-btn-row">
+          <button type="button" id="pickFolder">Choose folder</button>
+          <button type="button" id="btnStartLoad" class="btn-start-load" disabled>Start load</button>
+        </div>
+        <div class="folder-path" id="folderPath">No folder selected</div>
+        <div id="startLoadWrap" hidden></div>
+
+        <div class="loading" id="browseLoading" hidden>
+          <div class="spinner"></div><span>Loading folder...</span>
+        </div>
+        <div class="loading cache-loading" id="cacheLoading" hidden>
+          <div class="spinner"></div><span id="cacheStatus">Caching cycle information...</span>
+        </div>
+        <div class="browser" id="browser" hidden></div>
+        <div class="status">
+          <span class="dot" id="loadDot"></span>
+          <span id="loadText">No file loaded</span>
+        </div>
+        <p class="err" id="loadErr" hidden></p>
+      </section>
+
+      <section class="panel cache-panel">
+        <div class="panel-title">Folder cache</div>
+        <div class="cache-status-row">
+          <span id="cacheCountLabel">No folders cached</span>
+        </div>
+        <button type="button" id="btnPreCacheAll" class="cache-btn-full" disabled>Cache all folders</button>
+        <div class="cache-io-row">
+          <button type="button" id="btnExportCache" class="secondary small" disabled>Export JSON</button>
+          <button type="button" id="btnImportCache" class="secondary small">Import JSON</button>
+          <button type="button" id="btnClearCache" class="secondary small btn-danger" disabled>Clear</button>
+        </div>
+        <div class="loading inline-loading" id="preCacheLoading" hidden>
+          <div class="spinner"></div><span id="preCacheStatus">Pre-caching...</span>
+        </div>
+        <input type="file" id="importCacheInput" accept=".json" hidden />
+      </section>
+
+    </aside>
+
+    <main class="workspace">
+      <div class="topbar">
+        <nav class="tabs" aria-label="Workspace views">
+          <button type="button" class="tab active" data-tab="general">General inspection</button>
+          <button type="button" class="tab" data-tab="deep">Analyse</button>
+          <button type="button" class="tab" data-tab="feature">Feature Analyse</button>
+          <button type="button" class="tab" data-tab="summary">Data summary</button>
+        </nav>
+        <button type="button" id="themeToggle" class="theme-toggle" aria-label="Toggle dark mode" title="Toggle dark / light mode">
+          <span class="theme-toggle-icon">🌙</span>
+          <span class="theme-toggle-label">Dark</span>
+        </button>
+      </div>
+
+      <section class="tab-panel active" id="generalPanel">
+        <section class="inspection-toolbar">
+          <div>
+            <h2>General inspection</h2>
+          </div>
+          <div class="inspection-target-group">
+            <div class="inspection-target" id="folderInspectTarget">Click a subfolder on the left</div>
+            <button type="button" id="btnReloadFolder" class="secondary small" disabled>↻ Reload data</button>
+          </div>
+        </section>
+
+        <section id="datasetInfoCard" hidden></section>
+
+        <section class="folder-stats-grid" id="folderStats">
+          <article class="stat-card">
+            <div class="stat-title">Cells in folder</div>
+            <div class="stat-value">0</div>
+          </article>
+          <article class="stat-card">
+            <div class="stat-title">Files plotted</div>
+            <div class="stat-value">0</div>
+          </article>
+        </section>
+
+        <section class="plot-grid" id="folderPlotGrid">
+          <div class="empty-state">
+            <strong>No folder selected</strong>
+            <span>Click a subfolder to inspect cell count and maximum cycle by file.</span>
+          </div>
+        </section>
+
+        <section class="folder-table-card" id="folderTableCard" hidden>
+          <div class="folder-table-head">
+            <h3>Files in selected folder</h3>
+            <div class="temp-filter-wrap" id="tempFilterWrap" hidden>
+              <button type="button" class="secondary small" id="tempFilterBtn">Temperature: All ▾</button>
+              <div class="temp-filter-menu" id="tempFilterMenu" hidden></div>
+            </div>
+          </div>
+          <div class="folder-table-wrap">
+            <table class="folder-table">
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Temp (°C)</th>
+                  <th>Cycles</th>
+                  <th>I chg (A)</th>
+                  <th>I dch (A)</th>
+                  <th>Qd max (Ah)</th>
+                  <th>Qd min (Ah)</th>
+                  <th>Qc max (Ah)</th>
+                  <th>Qc min (Ah)</th>
+                  <th>Qd fade</th>
+                  <th>Qc fade</th>
+                </tr>
+              </thead>
+              <tbody id="folderFileRows"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="tab-panel" id="deepPanel" hidden>
+        <section class="plot-toolbar">
+        <div>
+          <h2>Analyse</h2>
+        </div>
+        <div class="plot-controls">
+          <div class="field">
+            <label for="plotKind">Plot</label>
+            <select id="plotKind" disabled>
+              <option value="dqdv_discharge">dQ/dV - discharge</option>
+              <option value="dvdq_discharge">dV/dQ - discharge</option>
+              <option value="qd_vs_v">Qd vs voltage - discharge</option>
+              <option value="qc_vs_v">Qcharge vs voltage</option>
+              <option value="dqdv_charge">dQ/dV - charge</option>
+              <option value="dvdq_charge">dV/dQ - charge</option>
+              <option value="dqdv_both">dQ/dV - charge + discharge</option>
+              <option value="dvdq_both">dV/dQ - charge + discharge</option>
+              <option value="dqdv_dis_vs_time">dQ/dV vs time - discharge</option>
+              <option value="dqdv_chg_vs_time">dQ/dV vs time - charge</option>
+              <option value="dvdq_dis_vs_time">dV/dQ vs time - discharge</option>
+              <option value="dvdq_chg_vs_time">dV/dQ vs time - charge</option>
+              <option value="dqdv_time_both">dQ/dV vs time - charge + discharge</option>
+              <option value="dvdq_time_both">dV/dQ vs time - charge + discharge</option>
+              <option value="qcmax">Qcmax vs cycle</option>
+              <option value="qdmax">Qdmax vs cycle</option>
+            </select>
+          </div>
+          <div class="field cycle-field">
+            <label for="cycleMode">Cycles</label>
+            <div class="cycle-input-group">
+              <select id="cycleMode" disabled>
+                <option value="all">All cycles</option>
+                <option value="list">Specific list</option>
+                <option value="range">Range</option>
+              </select>
+              <input type="text" id="cycles" disabled placeholder="e.g. 0, 50, 100" hidden />
+              <div class="range-inputs" id="cycleRangeInputs" hidden>
+                <input type="number" id="cycleFrom" disabled min="0" placeholder="from" />
+                <span class="range-sep">→</span>
+                <input type="number" id="cycleTo" disabled min="0" placeholder="to" />
+                <span class="range-sep">step</span>
+                <input type="number" id="cycleStep" disabled min="1" placeholder="1" />
+              </div>
+            </div>
+          </div>
+          <label class="check-field">
+            <input type="checkbox" id="filterOutliers" disabled />
+            <span>Filter</span>
+          </label>
+          <button type="button" id="genPlot" disabled>Generate plot</button>
+        </div>
+        <div class="loading inline-loading" id="plotLoading" hidden>
+          <div class="spinner"></div><span>Rendering plots...</span>
+        </div>
+        <span class="err" id="plotErr" hidden></span>
+        </section>
+
+        <section class="stats-grid" id="meta" hidden></section>
+
+        <section class="plot-grid" id="plotGrid">
+          <div class="empty-state">
+            <strong>No plot yet</strong>
+            <span>Load a file, choose a plot type, then generate the plot.</span>
+          </div>
+        </section>
+      </section>
+
+      <section class="tab-panel" id="featurePanel" hidden>
+        <section class="plot-toolbar">
+        <div>
+          <h2>Feature Analyse</h2>
+        </div>
+        <nav class="sub-tabs" id="featSubTabs" aria-label="Feature analyse modes">
+          <button type="button" class="sub-tab active" data-subtab="single">Plot single</button>
+          <button type="button" class="sub-tab" data-subtab="compare">Compare two</button>
+          <button type="button" class="sub-tab" data-subtab="logfeat">Plot Log feature</button>
+        </nav>
+        <p class="feat-mode-help" id="featModeHelp"></p>
+        <div class="logfeat-folder-bar" id="logfeatFolderBar" hidden>
+          <span class="logfeat-folder-icon">📁</span>
+          <span class="logfeat-folder-label">Folder:</span>
+          <span class="logfeat-folder-name" id="logfeatFolderName">— double-click a subfolder in the sidebar —</span>
+        </div>
+        <div class="feat-compare-bar" id="featCompareBar" hidden>
+          <label class="check-field" title="Pick two PKL files from the selected subfolder and overlay them on the same chart" hidden>
+            <input type="checkbox" id="featCompareEnable" />
+            <span>Compare two files</span>
+          </label>
+          <span class="feat-compare-fileslot">
+            <label class="feat-compare-label" for="featFileA">File A <span class="dot file-a"></span></label>
+            <select id="featFileA" disabled><option value="">— pick a file —</option></select>
+          </span>
+          <span class="feat-compare-fileslot" id="featFileBWrap" hidden>
+            <label class="feat-compare-label" for="featFileB">File B <span class="dot file-b"></span></label>
+            <select id="featFileB" disabled><option value="">— pick a file —</option></select>
+          </span>
+          <span class="feat-compare-info" id="featCompareInfo"></span>
+        </div>
+        <div class="feat-folder-bar" id="featFolderBar" hidden>
+          <label class="check-field" title="Available only for log⟨|Δ ...|⟩ vs cycle plot kinds" hidden>
+            <input type="checkbox" id="featFolderMode" disabled />
+            <span>Across all files in selected folder</span>
+          </label>
+          <span class="feat-folder-target" id="featFolderTargetWrap" hidden>
+            <label for="featTargetCycle">Target cycle</label>
+            <input type="number" id="featTargetCycle" min="0" placeholder="e.g. 50" />
+          </span>
+          <span class="feat-folder-info" id="featFolderInfo"></span>
+        </div>
+        <div class="plot-controls">
+          <div class="field">
+            <label for="featPlotKind">Plot</label>
+            <select id="featPlotKind" disabled>
+              <option value="dqdv_discharge">dQ/dV vs voltage - discharge</option>
+              <option value="dvdq_discharge">dV/dQ vs voltage - discharge</option>
+              <option value="qd_vs_v">Qd vs voltage - discharge</option>
+              <option value="qc_vs_v">Qcharge vs voltage</option>
+              <option value="dqdv_charge">dQ/dV vs voltage - charge</option>
+              <option value="dvdq_charge">dV/dQ vs voltage - charge</option>
+              <option value="dqdv_both">dQ/dV vs voltage - charge + discharge</option>
+              <option value="dvdq_both">dV/dQ vs voltage - charge + discharge</option>
+              <option value="vdis_vs_time">Vdischarge vs time</option>
+              <option value="vchg_vs_time">Vcharge vs time</option>
+              <option value="dqdv_dis_vs_time">dQ/dV vs time - discharge</option>
+              <option value="dqdv_chg_vs_time">dQ/dV vs time - charge</option>
+              <option value="dvdq_dis_vs_time">dV/dQ vs time - discharge</option>
+              <option value="dvdq_chg_vs_time">dV/dQ vs time - charge</option>
+              <option value="dqdv_time_both">dQ/dV vs time - charge + discharge</option>
+              <option value="dvdq_time_both">dV/dQ vs time - charge + discharge</option>
+              <option value="logavg_dqdv_dis_vs_cycle">log⟨|Δ dQ/dV|⟩ vs cycle - discharge</option>
+              <option value="logavg_dqdv_chg_vs_cycle">log⟨|Δ dQ/dV|⟩ vs cycle - charge</option>
+              <option value="logavg_dvdq_dis_vs_cycle">log⟨|Δ dV/dQ|⟩ vs cycle - discharge</option>
+              <option value="logavg_dvdq_chg_vs_cycle">log⟨|Δ dV/dQ|⟩ vs cycle - charge</option>
+              <option value="logavg_q_dis_vs_cycle">log⟨|Δ Q|⟩ vs cycle - discharge</option>
+              <option value="logavg_q_chg_vs_cycle">log⟨|Δ Q|⟩ vs cycle - charge</option>
+              <option value="logavg_v_dis_vs_cycle">log⟨|Δ V|⟩ vs cycle - discharge</option>
+              <option value="logavg_v_chg_vs_cycle">log⟨|Δ V|⟩ vs cycle - charge</option>
+              <option value="logmax_dqdv_dis_vs_cycle">log(max|Δ dQ/dV|) vs cycle - discharge</option>
+              <option value="logmax_dqdv_chg_vs_cycle">log(max|Δ dQ/dV|) vs cycle - charge</option>
+              <option value="logmax_dvdq_dis_vs_cycle">log(max|Δ dV/dQ|) vs cycle - discharge</option>
+              <option value="logmax_dvdq_chg_vs_cycle">log(max|Δ dV/dQ|) vs cycle - charge</option>
+              <option value="logmax_q_dis_vs_cycle">log(max|Δ Q|) vs cycle - discharge</option>
+              <option value="logmax_q_chg_vs_cycle">log(max|Δ Q|) vs cycle - charge</option>
+              <option value="logmax_v_dis_vs_cycle">log(max|Δ V|) vs cycle - discharge</option>
+              <option value="logmax_v_chg_vs_cycle">log(max|Δ V|) vs cycle - charge</option>
+              <option value="logmin_dqdv_dis_vs_cycle">log(min|Δ dQ/dV|) vs cycle - discharge</option>
+              <option value="logmin_dqdv_chg_vs_cycle">log(min|Δ dQ/dV|) vs cycle - charge</option>
+              <option value="logmin_dvdq_dis_vs_cycle">log(min|Δ dV/dQ|) vs cycle - discharge</option>
+              <option value="logmin_dvdq_chg_vs_cycle">log(min|Δ dV/dQ|) vs cycle - charge</option>
+              <option value="logmin_q_dis_vs_cycle">log(min|Δ Q|) vs cycle - discharge</option>
+              <option value="logmin_q_chg_vs_cycle">log(min|Δ Q|) vs cycle - charge</option>
+              <option value="logmin_v_dis_vs_cycle">log(min|Δ V|) vs cycle - discharge</option>
+              <option value="logmin_v_chg_vs_cycle">log(min|Δ V|) vs cycle - charge</option>
+            </select>
+          </div>
+          <label class="check-field" title="Subtract a selected reference cycle before plotting">
+            <input type="checkbox" id="featUseRefCycle" disabled checked />
+            <span>Use reference</span>
+          </label>
+          <div class="field">
+            <label for="featRefCycle">Reference cycle</label>
+            <input type="number" id="featRefCycle" disabled min="0" value="0" placeholder="e.g. 10" />
+          </div>
+          <div class="field cycle-field" id="featCyclesField">
+            <label for="featCycleMode">Cycles</label>
+            <div class="cycle-input-group">
+              <select id="featCycleMode" disabled>
+                <option value="all">All cycles</option>
+                <option value="list">Specific list</option>
+                <option value="range">Range</option>
+              </select>
+              <input type="text" id="featCycles" disabled placeholder="e.g. 0, 50, 100" hidden />
+              <div class="range-inputs" id="featCycleRangeInputs" hidden>
+                <input type="number" id="featCycleFrom" disabled min="0" placeholder="from" />
+                <span class="range-sep">→</span>
+                <input type="number" id="featCycleTo" disabled min="0" placeholder="to" />
+                <span class="range-sep">step</span>
+                <input type="number" id="featCycleStep" disabled min="1" placeholder="1" />
+              </div>
+            </div>
+          </div>
+          <div class="field" id="featTargetCycleField" hidden>
+            <label for="featTargetCycleInline">Target cycle</label>
+            <input type="number" id="featTargetCycleInline" min="0" placeholder="e.g. 50" />
+          </div>
+          <label class="check-field">
+            <input type="checkbox" id="featFilterOutliers" disabled />
+            <span>Filter</span>
+          </label>
+          <button type="button" id="featGenPlot" disabled>Generate plot</button>
+        </div>
+        <div class="loading inline-loading" id="featPlotLoading" hidden>
+          <div class="spinner"></div><span>Rendering feature plots...</span>
+        </div>
+        <span class="err" id="featPlotErr" hidden></span>
+        </section>
+
+        <section class="plot-grid" id="featPlotGrid">
+          <div class="empty-state">
+            <strong>No feature plot yet</strong>
+            <span>Load a file, pick a reference cycle, choose a plot type, then generate.</span>
+          </div>
+        </section>
+      </section>
+
+      <section class="tab-panel" id="summaryPanel" hidden>
+        <section class="summary-head">
+          <div>
+            <h2>Data summary</h2>
+            <p class="muted">Battery dataset collection grouped by electrode chemistry — adapted from <em>Table 1, battery_data.pdf</em>.</p>
+          </div>
+        </section>
+        <div id="summaryStats" class="summary-stats"></div>
+        <div id="summaryFamilies" class="summary-families"></div>
+        <section class="summary-table-card">
+          <div class="summary-table-wrap">
+            <table class="summary-table" id="summaryTable"></table>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <script src="/app.js?v=40"></script>
+</body>
+</html>
