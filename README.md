@@ -1,6 +1,10 @@
 # Battery AI Analyzer
 
-> **BatteryML PKL browser and plot viewer** — explore, compare, and visualise battery cycle-life data entirely in your browser. All processing runs locally; your data never leaves the machine.
+> **Local battery-data workbench** with two workspaces: **Data Analyse** (explore,
+> compare and visualise BatteryML cycle-life `.pkl` data) and **ECM** (extract HPPC
+> pulses from Neware `.xlsx` exports and fit an equivalent-circuit model — R0, R1,
+> C1 … per SOC — plus the open-circuit-voltage curve). Everything runs locally; your
+> data never leaves the machine.
 >
 > *Design by CuongFX*
 
@@ -9,212 +13,207 @@
 ## Quick Start
 
 ```bash
-# from the project root
-python -m uvicorn webapp.main:app --host 127.0.0.1 --port 8765 --reload
+# install (web app + ECM engine)
+pip install -r requirements.txt
+pip install -r equiv-circ-model/requirements.txt
+
+# run (serves API + UI on http://127.0.0.1:8765)
+./run_webapp.sh                 # macOS / Linux
+run_webapp_windows.cmd          # Windows
+# equivalent:
+PYTHONPATH=. python -m uvicorn webapp.main:app --host 127.0.0.1 --port 8765
 ```
 
-Open **http://localhost:8765** in your browser.
-
-**Requirements:** Python 3.10+, packages: `fastapi`, `uvicorn`, `plotly`, `numpy`, `scipy` (see `requirements.txt`).
-
-> On Windows you can double-click `run_webapp_windows.cmd`; on macOS/Linux run `./run_webapp.sh`.
+Open **http://localhost:8765**. **Requirements:** Python 3.11+ (tested on 3.12);
+packages: `fastapi`, `uvicorn`, `pydantic`, `plotly`, `numpy`, `scipy`, `pandas`,
+`matplotlib`, `openpyxl`.
 
 ---
 
-## Interface at a Glance
+## Choosing a Workspace
 
-The window is split into a **left sidebar** (data source + navigation + cache) and a **main workspace** with three tabs:
+On launch you pick a workspace. Use **← Home** (top-left) at any time to come back
+and switch; the app remembers your last workspace across reloads.
 
-| Tab | Purpose |
+![Choose a workspace](docs/screenshots/00_choose_workspace.png)
+
+| Workspace | What it does |
+|---|---|
+| **📊 Data Analyse** | Inspect cells, plot dQ/dV & dV/dQ, degradation features, dataset summary (BatteryML `.pkl`). |
+| **🔋 ECM** | Extract HPPC pulses from Neware `.xlsx`, fit 1RC/2RC R·C·τ per SOC, and estimate OCV. |
+
+---
+
+# Workspace 1 — Data Analyse
+
+A **left sidebar** (data source + folder cache) plus four sub-tabs:
+
+| Sub-tab | Purpose |
 |---|---|
 | **General Inspection** | Folder-wide overview — one bar per cell, stat cards, files table |
 | **Analyse** | Single-cell deep dive — dQ/dV, dV/dQ, capacity-fade curves |
-| **Feature Analyse** | Feature engineering — single, two-cell comparison, and whole-folder log-feature scatter |
+| **Feature Analyse** | Difference features — single, two-cell comparison, whole-folder log scatter |
+| **Data summary** | The dataset collection grouped by electrode chemistry |
 
 ![Choosing a folder and browsing the sidebar](docs/screenshots/01_choose_folder1.png)
 
----
+### Choose your data folder
 
-## Step 1 — Choose Your Data Folder
-
-Click **Choose folder** in the sidebar and select the root directory that holds your BatteryML subfolders (e.g. `Raw_BML/`).
-
-Once a root is selected:
-
-- The sidebar lists every **subfolder** (`DIR` badge) and **PKL file** (`PKL` badge).
-- The app remembers this folder across browser reloads — you only pick it again if you switch datasets.
-- Cached subfolders show a filled dot (●) for instant access.
-
-### Sidebar Navigation
+Click **Choose folder** and select the root directory holding your BatteryML
+subfolders (e.g. `Raw_BML/`). The sidebar then lists every **subfolder** (`DIR`)
+and **PKL file** (`PKL`); the app remembers the folder across reloads, and cached
+subfolders show a filled dot (●) for instant access.
 
 | Action | Result |
 |---|---|
-| **Single-click a subfolder** | Opens it in the *General Inspection* tab |
-| **Double-click a subfolder** | Navigates *into* it to reveal its PKL files — does **not** switch tabs |
-| **Single-click a PKL file** | Loads that cell into the *Analyse* / *Feature Analyse* tabs |
+| **Single-click a subfolder** | Opens it in *General Inspection* |
+| **Double-click a subfolder** | Navigates *into* it to reveal its PKL files (keeps the current tab) |
+| **Single-click a PKL file** | Loads that cell into *Analyse* / *Feature Analyse* |
 
-> **Tip:** Stay on the Analyse tab and double-click subfolders to drill down without losing your current plot.
+The first time you open a subfolder, the app reads every PKL, computes per-file
+metrics (max cycle, Qd/Qc, current, capacity fade, EOL cycle) and caches them on
+the server (`webapp/cache/folder_cycle_cache.json`) and in the browser.
 
-The **first** time you open a subfolder, the app reads every PKL, computes per-file metrics (max cycle, Qd/Qc capacity, current, capacity fade, EOL cycle), and caches the result both on the server (`webapp/cache/folder_cycle_cache.json`) and in the browser. Every later visit is instant.
-
----
-
-## Step 2 — General Inspection
-
-The **General Inspection** tab gives a complete picture of all cells in a folder at once.
+### General Inspection
 
 ![General inspection of the MATR dataset](docs/screenshots/02_general_inspection.png)
 
-### Dataset Info & Stat Cards
+A green info card (from `Data_Info/<FOLDER>_README.md`) plus stat cards (cells in
+folder, files plotted, files with issues, ambient temperature). The **bar chart**
+shows each cell's maximum cycle on a pale-blue → deep-navy gradient; ordering
+buttons (**Original**, **↓ Low → High**, **↑ High → Low**) sort in-browser. Click a
+bar to toggle the **EOL @ 80 % Qd** marker; **SVG**/**PDF** export the view. The
+**Files** table below lists temperature, cycles, currents, Qd/Qc bounds and fade per
+cell, with a temperature filter when a folder mixes temperatures.
 
-If a matching `Data_Info/<FOLDER>_README.md` exists, its description (chemistry, format, nominal capacity, protocol) is shown in a green info card. Below it sit four stat cards:
-
-| Card | What it tells you |
-|---|---|
-| **Cells in folder** | Total number of `.pkl` files found |
-| **Files plotted** | Files successfully read with valid cycle data |
-| **Files with issues** | Files that failed to parse (corrupt, truncated, incompatible) |
-| **Ambient temperature** | Test temperatures detected from filenames or the dataset README, shown as blue pill badges (e.g. `30 °C`). Shows `N/A` if unknown. |
-
-### Bar Chart — Maximum Cycle per File
-
-Each bar is one cell; height = its maximum recorded cycle. Bars are coloured on a pale-blue → deep-navy gradient so the weakest and strongest cells stand out instantly.
-
-Three header buttons control ordering: **Original** (file order), **↓ Low → High** *(default)*, and **↑ High → Low**. Sorting runs entirely in the browser.
-
-**EOL marker (End-of-Life @ 80% Qd):** click any bar to draw a red line at the cycle where discharge capacity first drops to 80% of its initial value; click again to toggle it off. **SVG** / **PDF** buttons export the current view.
-
-### Files Table
-
-Below the chart, the **Files in selected folder** table lists one row per cell:
-
-| Column | Description |
-|---|---|
-| File | `.pkl` filename |
-| Temp (°C) | Ambient temperature (filename or README fallback) |
-| Cycles | Number of cycles recorded |
-| I chg / I dch (A) | Max charge / discharge current |
-| Qd max / Qd min (Ah) | Discharge-capacity bounds |
-| Qc max / Qc min (Ah) | Charge-capacity bounds |
-| Qd fade / Qc fade | Capacity fade percentage |
-
-When a folder mixes two or more temperatures, a **Temperature** filter dropdown appears in the table header so you can show just the subset you care about.
-
----
-
-## Step 3 — Analyse Tab (Single-Cell Deep Dive)
-
-Double-click a `.pkl` file in the sidebar (the status bar shows `Loaded: <filename>`), then open the **Analyse** tab for electrochemical analysis of that one cell.
+### Analyse (single-cell)
 
 ![Single-cell analysis with summary cards and a current-vs-time curve](docs/screenshots/03_single_cell_analyse.png)
 
-### Summary Cards
+Summary cards (cycles, voltage/current range, Qd/Qc first→last with % drop) plus
+plot types: dQ/dV and dV/dQ (discharge / charge / both, vs voltage or vs time),
+Qd-vs-V, Qcharge-vs-V, and Qdmax/Qcmax-vs-cycle. Pick a plot, type the cycles
+(`0, 50, 100` or `all`), optionally **Filter** to clip axes to the 1–99 percentile,
+then **Generate plot**. Range sliders zoom; **Autoscale** resets.
 
-Above the plot, cards summarise the cell: **cycles total**, **max cycle index**, **voltage range**, **current range**, and first/last values with % decrease for **Qdmax** and **Qcmax**.
+### Feature Analyse
 
-### Plot Types
-
-| Plot type | What it shows |
-|---|---|
-| dQ/dV — discharge / charge / both | Differential capacity vs voltage |
-| dV/dQ — discharge / charge / both | Differential voltage vs capacity |
-| Qd vs voltage — discharge | Discharge capacity vs cell voltage |
-| Qcharge vs voltage | Charge capacity vs cell voltage |
-| dQ/dV & dV/dQ vs time | The above plotted against time instead of voltage |
-| Qcmax vs cycle / Qdmax vs cycle | Capacity-fade curve across all cycles |
-
-**How to use:** pick a plot type, type the cycles to compare in the **Cycles** field (`0, 50, 100` or `all`), optionally tick **Filter** to clip axes to the 1–99 percentile, then click **Generate plot**. Range sliders under the chart let you zoom; **Autoscale** resets.
-
----
-
-## Step 4 — Feature Analyse
-
-The **Feature Analyse** tab builds difference-based features that are useful for degradation studies and life-prediction models. It has three sub-tabs.
-
-### Plot single / Compare two
-
-**Plot single** renders a feature for one cell; **Compare two** overlays the same feature from two cells on one chart. Tick **Use reference** to subtract a chosen reference cycle from every plotted cycle, so each curve shows the change relative to that baseline.
+Difference-based features for degradation studies, with three sub-modes.
+**Plot single** / **Compare two** render a feature for one cell or overlay two;
+tick **Use reference** to subtract a chosen reference cycle.
 
 ![Compare two — Δ dQ/dV vs voltage for two MATR cells](docs/screenshots/04_feature_analyse_compare_2.png)
 
-In the example above, File A (`MATR_b1c18`) and File B (`MATR_b1c30`) are overlaid as **Δ dQ/dV vs voltage**, each referenced to cycle 10.
-
-### Plot Log feature
-
-**Plot Log feature** compares **every cell in the selected folder** at once. For a chosen **target cycle**, it draws one point per cell — the log-magnitude feature (e.g. `log⟨|Δ dQ/dV|⟩`) against the cell's cycle life — so you can see how the cells separate at that cycle. A reference cycle is optional; when enabled, each cell's data has its reference-cycle data subtracted before the feature is computed.
+**Plot Log feature** compares **every cell in the folder** at a target cycle —
+one point per cell (e.g. `log⟨|Δ dQ/dV|⟩`) against its cycle life.
 
 ![Plot Log feature — whole-folder scatter coloured by cycle life](docs/screenshots/05_log_features_analyse.png)
 
-Every Feature Analyse plot supports **Filter** (outlier clipping), range sliders, and **SVG** / **PDF** export.
+Every chart supports **Filter**, range sliders, and **SVG**/**PDF** export.
+
+### Data summary
+
+The bundled dataset collection grouped by electrode chemistry (adapted from
+*Table 1, battery_data.pdf*): datasets, total cells, chemistry families, and a
+per-dataset table (cells, electrodes, nominal capacity, temperatures).
+
+![Data summary table](docs/screenshots/06_data_summary.png)
+
+### Folder cache
+
+The sidebar **Folder cache** panel manages cached data: **Cache all folders**
+(bulk pre-load), **Export JSON** / **Import JSON** (back up or move a cache between
+machines), and **Clear**. The cache is keyed by path + size + mtime and
+auto-invalidated when files change.
+
+### Ambient temperature
+
+Resolved from the **filename** (`NMC_25C`, `CALB_0_B182 → 0 °C`, `Tongji1_CY25 → 25 °C`;
+cell-ID / C-rate tokens are ignored), then a **README fallback** for
+single-temperature datasets, otherwise **N/A**.
 
 ---
 
-## Folder Cache Panel
+# Workspace 2 — ECM (Equivalent Circuit Model)
 
-The **Folder cache** section at the bottom of the sidebar manages all cached data.
+Estimate R0, R1, C1 (1RC) or R0, R1, C1, R2, C2 (2RC) per SOC from a Neware HPPC
+test, plus the OCV–SOC curve. Input is the fixed Neware `.xlsx` export (worksheet
+default `Record List1`). A guided 4-step stepper drives the flow.
 
-| Button | Effect |
-|---|---|
-| **Cache all folders** | Pre-loads every visible subfolder silently — useful for bulk caching |
-| **Export JSON** | Downloads the cache so you can back it up or share it |
-| **Import JSON** | Restores a previously exported cache (merges with existing entries) |
-| **Clear** | Wipes the entire browser cache |
+### Step 1 — Select data
 
-> **Sharing a cache:** Export on one machine and Import on another to skip re-processing the PKL files.
+![ECM — select data and optional limits](docs/screenshots/07_ecm_select.png)
 
-### Cache Architecture
+Choose a **single `.xlsx`** or a **folder** (processed recursively). The worksheet
+name is editable. **Capacity for SOC** auto-detects from the data, and an
+**Optional limits** panel lets you enter a max/min voltage, max charge/discharge
+current (discharge as a negative number) and a reference **nominal capacity** —
+all optional.
 
-| Layer | Location | Purpose |
-|---|---|---|
-| Server disk cache | `webapp/cache/folder_cycle_cache.json` | Per-file metrics, keyed by path + size + mtime; auto-invalidated when files change |
-| Browser localStorage | `batteryAi.folders.v2` | Row data mirrored in-browser; bar chart rebuilt client-side on reload |
-| Last selected folder | `batteryAi.lastSelected` | Subfolder open at last close — auto-restored |
-| Last root folder | `batteryAi.lastRootDir` | Root browsed last — auto-browsed on next load |
+- **Auto-detected** per file: **Qd** (constant-discharge throughput), **Qc** (final
+  CCCV charge), and the HPPC-window voltage/current ranges.
+- The simulated voltage is **clipped to the cell's voltage window** (yours, or the
+  detected range) and the fit-plot axis is locked — this removes the non-physical
+  charge-pulse overshoot a linear ECM would otherwise show.
+- Out-of-range measured data raises **non-blocking warnings**; the signal is never modified.
 
----
+### Steps 2–3 — Extract pulses & Fit
 
-## Ambient Temperature Detection
+**Extract pulses** detects the HPPC region and saves the pulse data (CSV + plot).
+**Fit** runs the model with a chosen **order** (1RC / 2RC), **algorithm**
+(`curve_fit`, `multi_start`, `bounded_ls`, `robust_ls`, `differential_evolution`)
+and **OCV output** (tabulated / analytical polynomial / both). For a folder, all
+files run as a batch with a progress bar.
 
-Each cell's ambient temperature is resolved in order:
+### Step 4 — Results
 
-1. **Filename** — chemistry/format tokens (`NMC_25C`, `pouch_-5C`, `18650_30C`, `LFP_45C`), dataset-prefix style (`CALB_0_B182` → `0 °C`), and Tongji cycling tokens (`Tongji1_CY25-…` → `25 °C`). Cell-ID and C-rate tokens like `02C` or `1-1C` are deliberately **not** matched.
-2. **README fallback** — for single-temperature datasets (e.g. MATR, HUST, RWTH at one fixed temperature), the value stated in the dataset description (*"30 degrees Celsius"*, *"25°C"*) fills in any file whose name carries no temperature.
-3. **N/A** — shown when no temperature can be determined (e.g. a multi-temperature dataset whose filenames don't encode it).
+![ECM results — cards, R/C table and stacked plots](docs/screenshots/08_ecm_results.png)
 
----
+Metric cards (**MAE**, **RMSE**, **Qd**, **Qc**, **OCV@100 %**, **OCV@0 %**), the
+R/C/τ-per-SOC table, and the plots — **Measured-vs-fitted voltage**, then
+**R/C/τ vs SOC**, then **OCV vs SOC** — each stacked one per row.
 
-## Troubleshooting
+The **estimated OCV** comes from the rested voltage before each discharge pulse plus
+the final discharge-to-0 % point; it is shown as a tabulated curve, an optional
+polynomial fit, and a scrollable table.
 
-| Symptom | Fix |
-|---|---|
-| Files show `—` in every column | Those PKL files are corrupt or truncated. Re-download, then click **↻ Reload data**. |
-| "No cycle data found" | The PKL files lack a `cycle_data` list with `cycle_number` fields. |
-| Loading is slow every time | Delete `webapp/cache/folder_cycle_cache.json` and reload to rebuild. |
-| Stale UI after an update | Hard-refresh: `Ctrl+Shift+R` (Windows/Linux) or `Cmd+Shift+R` (Mac). |
-| Wrong / missing temperature | Click **Clear** in the cache panel and reload the folder. |
-| "Connection error" | The server may have restarted — refresh the page. |
+![ECM — estimated OCV vs SOC](docs/screenshots/09_ecm_ocv.png)
 
----
+**Saving & zooming plots.** Every ECM plot has **SVG** and **PDF** buttons (top-right)
+that download a true-vector copy. **Click any plot** to enlarge it; close with the
+**✕** button, by clicking the image/backdrop, or with **Esc**.
 
-## Expected Folder Structure
+![ECM — click-to-zoom overlay](docs/screenshots/10_ecm_zoom.png)
+
+### Outputs
+
+All results are written under `equiv-circ-model/Equivalent-Circuit/<file>/`:
 
 ```
-Root folder/             ← select this with "Choose folder"
-├── CALB/
-│   ├── CALB_0_B182.pkl
-│   ├── CALB_25_B247.pkl
-│   └── ...
-├── HUST/
-│   ├── HUST_1-1.pkl
-│   └── ...
-├── MATR/
-│   ├── MATR_b1c0.pkl
-│   └── ...
-└── Data_Info/           ← optional: README files for dataset descriptions
-    ├── CALB_README.md
-    ├── MATR_README.md
-    └── ...
+<file>_pulses.csv / .png / .svg / .pdf       # extracted HPPC pulses
+<file>_<N>rc_parameters.csv                  # R/C/τ per SOC
+<file>_<N>rc_fit.png / .svg / .pdf           # measured vs fitted voltage
+<file>_<N>rc_params.png / .svg / .pdf        # R/C/τ vs SOC
+<file>_ocv.csv  +  <file>_ocv.png/.svg/.pdf  # OCV vs SOC (tabulated [+ polynomial])
+<file>_summary.csv                           # capacity, ranges, limits, OCV@100/0, warnings
 ```
+
+---
+
+## Expected Inputs
+
+**Data Analyse** — a root folder of BatteryML subfolders:
+
+```
+Root folder/                 ← select with "Choose folder"
+├── CALB/  CALB_0_B182.pkl …
+├── HUST/  HUST_1-1.pkl …
+├── MATR/  MATR_b1c0.pkl …
+└── Data_Info/               ← optional README files for dataset descriptions
+```
+
+**ECM** — a single Neware `.xlsx` HPPC export, or a folder of them (scanned
+recursively). Each test is assumed to be an HPPC sweep followed by a full CCCV charge.
 
 ---
 
@@ -222,23 +221,37 @@ Root folder/             ← select this with "Choose folder"
 
 ```
 webapp/
-├── UI/                  ← browser HTML, CSS, and JavaScript
+├── UI/                  ← browser HTML, CSS, JavaScript (app.js = Data Analyse, ecm.js = ECM)
 ├── api/                 ← API routes and request models
-├── data_processing/     ← BatteryML loading, inspection, cache, sessions, path helpers
+├── data_processing/     ← BatteryML loading, inspection, cache, sessions, paths,
+│                          ecm_runner.py (ECM pipeline) + ecm_ocv.py (OCV estimation)
 ├── plot/                ← Plotly chart builders
 ├── config.py            ← shared paths and constants
 └── main.py              ← app entrypoint
+equiv-circ-model/        ← standalone ECM engine (HPPC extraction + curve fitting), imported at runtime
 ```
+
+---
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| Files show `—` in every column | Those PKL files are corrupt/truncated. Re-download, then **↻ Reload data**. |
+| "No cycle data found" | The PKL lacks a `cycle_data` list with `cycle_number` fields. |
+| Loading slow every time | Delete `webapp/cache/folder_cycle_cache.json` and reload. |
+| Stale UI after an update | Hard-refresh: `Ctrl+Shift+R` (Win/Linux) or `Cmd+Shift+R` (Mac). |
+| ECM: "Sheet not found" | Set the correct worksheet name in Step 1 (default `Record List1`). |
+| ECM: odd capacity / SOC | Enter the cell capacity in **Capacity for SOC**, or check the file is a full HPPC + CCCV run. |
+| "Connection error" | The server may have restarted — refresh the page. |
 
 ---
 
 ## Dataset Download
 
 This app works with the **BatteryLife** dataset collection:
-
-**https://github.com/Ruifeng-Tan/BatteryLife**
-
-The repository provides Hugging Face / Zenodo download links covering all included datasets: `CALCE`, `MATR`, `HUST`, `HNEI`, `MICH`, `CALB`, `MICH_EXP`, `SNL`, `Tongji`, and more.
+**https://github.com/Ruifeng-Tan/BatteryLife** (Hugging Face / Zenodo links for
+`CALCE`, `MATR`, `HUST`, `HNEI`, `MICH`, `CALB`, `MICH_EXP`, `SNL`, `Tongji`, …).
 
 ---
 
@@ -246,9 +259,7 @@ The repository provides Hugging Face / Zenodo download links covering all includ
 
 ### This tool
 
-If you use the **Battery AI Analyzer** in your research, please cite it as:
-
-> Pham, Manh Cuong. *Battery AI Analyzer* RPTU Kaiserslautern-Landau, 2026. https://github.com/Cuongfx/Battery_analyse_web_app
+> Pham, Manh Cuong. *Battery AI Analyzer*. RPTU Kaiserslautern-Landau, 2026. https://github.com/Cuongfx/Battery_analyse_web_app
 
 ```bibtex
 @software{pham_battery_ai_analyzer_2026,
@@ -261,8 +272,6 @@ If you use the **Battery AI Analyzer** in your research, please cite it as:
 ```
 
 ### BatteryLife dataset
-
-If you also use the BatteryLife dataset, please cite:
 
 ```bibtex
 @inproceedings{10.1145/3711896.3737372,

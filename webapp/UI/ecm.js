@@ -55,11 +55,12 @@
         <figcaption>${caption}</figcaption>
         <div class="ecm-figure-actions">${dl.join("")}</div>
       </div>
-      <img class="ecm-plot-img" src="${imgUrl(png)}" alt="${alt || caption}" title="Double-click to enlarge" />
+      <img class="ecm-plot-img" src="${imgUrl(png)}" alt="${alt || caption}" title="Click to enlarge" />
     </figure>`;
   }
 
-  // Double-click any ECM plot image -> full-screen modal; click backdrop or Esc to close.
+  // Single-click any ECM plot image -> full-screen modal; close via the X
+  // button, clicking the image/backdrop, or Esc.
   let lightboxWired = false;
   function wireLightbox() {
     if (lightboxWired) return;
@@ -69,13 +70,13 @@
     if (!box || !img) return;
     const close = () => { box.hidden = true; img.src = ""; };
 
-    eg("ecmPanel").addEventListener("dblclick", (e) => {
+    eg("ecmPanel").addEventListener("click", (e) => {
       const target = e.target.closest(".ecm-plot-img");
       if (!target) return;
       img.src = target.src;
       box.hidden = false;
     });
-    box.addEventListener("click", close);
+    box.addEventListener("click", close); // backdrop, image, or X all close
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && !box.hidden) close();
     });
