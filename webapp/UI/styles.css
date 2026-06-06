@@ -1668,3 +1668,116 @@ button.btn-danger:hover {
 [data-theme="dark"] .neg-graphite { color: #cbd5e1; }
 [data-theme="dark"] .neg-carbon   { color: #b6c2d2; }
 [data-theme="dark"] .neg-zinc     { color: #67e8f9; }
+
+/* ===================== ECM tab ===================== */
+/* The ECM tab is a self-contained workflow — hide the data-source sidebar. */
+body.ecm-active .app-shell { grid-template-columns: 1fr; }
+body.ecm-active .sidebar { display: none; }
+
+.ecm-head { margin-bottom: 1rem; }
+.ecm-head h2 { margin: 0; color: var(--text); font-size: 1.45rem; }
+
+.ecm-stepper {
+  display: flex;
+  list-style: none;
+  margin: 0 0 1.1rem;
+  padding: 0;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.ecm-step {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1 1 0;
+  min-width: 150px;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.ecm-step .ecm-step-no {
+  display: grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 0.82rem;
+  flex: none;
+}
+.ecm-step.active { border-color: var(--accent); color: var(--text); box-shadow: var(--shadow); }
+.ecm-step.active .ecm-step-no { background: var(--accent); color: #fff; }
+.ecm-step.done .ecm-step-no { background: var(--success); color: #fff; }
+.ecm-step.skip { opacity: 0.45; }
+
+.ecm-stage { padding: 1.1rem 1.2rem; display: flex; flex-direction: column; gap: 1rem; }
+
+.ecm-mode-row { display: flex; gap: 1.2rem; flex-wrap: wrap; }
+.ecm-radio { display: flex; align-items: center; gap: 0.45rem; cursor: pointer; font-size: 0.92rem; color: var(--text); }
+.ecm-radio input { accent-color: var(--accent); }
+
+.ecm-field-row { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; }
+.ecm-field-row .folder-path { flex: 1 1 240px; }
+
+.ecm-folder-info { font-size: 0.85rem; color: var(--accent); font-weight: 600; }
+
+.ecm-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
+.ecm-stage .field { display: flex; flex-direction: column; gap: 0.35rem; }
+.ecm-stage .field > label { font-size: 0.78rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.ecm-stage input[type="text"], .ecm-stage input[type="number"], .ecm-stage select {
+  padding: 0.5rem 0.6rem; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); color: var(--text); font-size: 0.9rem;
+}
+.ecm-cap-wrap { display: flex; gap: 0.5rem; }
+.ecm-cap-wrap input { flex: 1; }
+.ecm-cap-note { font-size: 0.8rem; color: var(--muted); }
+
+.ecm-actions { display: flex; gap: 0.6rem; }
+.ecm-actions-split { justify-content: space-between; }
+.ecm-primary {
+  background: var(--accent); color: #fff; border: none; border-radius: 8px;
+  padding: 0.55rem 1.1rem; font-weight: 600; cursor: pointer;
+}
+.ecm-primary:hover:not(:disabled) { background: var(--accent-strong); }
+.ecm-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.ecm-extract-result { display: flex; flex-direction: column; gap: 0.8rem; }
+.ecm-extract-stats { display: flex; flex-wrap: wrap; gap: 1.2rem; font-size: 0.9rem; color: var(--text); }
+.ecm-extract-stats b { color: var(--accent); }
+.ecm-saved-note { font-size: 0.8rem; color: var(--muted); margin: 0.2rem 0 0; }
+.ecm-saved-note code, .ecm-head code { font-size: 0.78rem; }
+
+.ecm-plot-img { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+
+.ecm-progress { display: flex; flex-direction: column; gap: 0.45rem; }
+.ecm-progress-bar { height: 10px; border-radius: 6px; background: var(--surface-soft); overflow: hidden; }
+.ecm-progress-fill { height: 100%; width: 0; background: var(--accent); transition: width 0.2s ease; }
+.ecm-progress-text { font-size: 0.84rem; color: var(--muted); }
+
+.ecm-results-head h3 { margin: 0 0 0.2rem; color: var(--text); }
+.ecm-metrics { display: flex; gap: 1rem; flex-wrap: wrap; margin: 0.8rem 0; }
+.ecm-metric { border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 1rem; background: var(--panel-soft); }
+.ecm-metric-label { display: block; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 700; }
+.ecm-metric-val { font-size: 1.15rem; font-weight: 700; color: var(--text); }
+
+.ecm-result-table { overflow: auto; margin: 0.6rem 0; }
+.ecm-result-table table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+.ecm-result-table th, .ecm-result-table td { border: 1px solid var(--border); padding: 0.4rem 0.6rem; text-align: right; white-space: nowrap; }
+.ecm-result-table th { background: var(--surface-soft); color: var(--muted); font-weight: 700; }
+.ecm-result-table td:first-child, .ecm-result-table th:first-child { text-align: left; }
+
+.ecm-result-plots { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; margin-top: 0.6rem; }
+.ecm-result-plots figure { margin: 0; }
+.ecm-result-plots figcaption { font-size: 0.82rem; color: var(--muted); margin-bottom: 0.3rem; font-weight: 600; }
+
+.ecm-batch-summary { margin-top: 1.2rem; border-top: 1px solid var(--border); padding-top: 1rem; }
+.ecm-batch-summary h4 { margin: 0 0 0.5rem; color: var(--text); }
+.ecm-errors { margin-top: 0.7rem; font-size: 0.85rem; color: var(--danger); }
+.ecm-errors ul { margin: 0.3rem 0 0; padding-left: 1.2rem; }
+
+.tab-ecm { border-left: 2px solid var(--accent); }

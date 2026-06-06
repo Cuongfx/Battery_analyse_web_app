@@ -44,3 +44,27 @@ class FolderLogavgBody(BaseModel):
 class ScreenshotBody(BaseModel):
     filename: str
     data: str
+
+
+class EcmPickBody(BaseModel):
+    kind: str = Field("xlsx", description="'xlsx' (single file) or 'folder'.")
+
+
+class EcmCapacityBody(BaseModel):
+    path: str
+    sheet: str = "Record List1"
+
+
+class EcmExtractBody(BaseModel):
+    path: str
+    sheet: str = "Record List1"
+    pulse_max_seconds: float = 60.0
+
+
+class EcmFitBody(BaseModel):
+    path: str
+    sheet: str = "Record List1"
+    rc_order: int = 1
+    algorithm: str = "curve_fit"
+    capacity: float | None = None
+    pulse_max_seconds: float = 60.0

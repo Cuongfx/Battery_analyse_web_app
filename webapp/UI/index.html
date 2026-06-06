@@ -69,6 +69,7 @@
           <button type="button" class="tab" data-tab="deep">Analyse</button>
           <button type="button" class="tab" data-tab="feature">Feature Analyse</button>
           <button type="button" class="tab" data-tab="summary">Data summary</button>
+          <button type="button" class="tab tab-ecm" data-tab="ecm">ECM</button>
         </nav>
         <button type="button" id="themeToggle" class="theme-toggle" aria-label="Toggle dark mode" title="Toggle dark / light mode">
           <span class="theme-toggle-icon">🌙</span>
@@ -358,9 +359,114 @@
           </div>
         </section>
       </section>
+
+      <section class="tab-panel ecm-panel" id="ecmPanel" hidden>
+        <section class="ecm-head">
+          <div>
+            <h2>Equivalent Circuit Model</h2>
+            <p class="muted">Extract HPPC pulses from Neware <code>.xlsx</code> exports and fit R0, R1, C1 … per SOC. Results are saved under <code>equiv-circ-model/Equivalent-Circuit/&lt;file&gt;/</code>.</p>
+          </div>
+        </section>
+
+        <ol class="ecm-stepper" id="ecmStepper">
+          <li class="ecm-step active" data-step="1"><span class="ecm-step-no">1</span><span class="ecm-step-label">Select data</span></li>
+          <li class="ecm-step" data-step="2"><span class="ecm-step-no">2</span><span class="ecm-step-label">Extract pulses</span></li>
+          <li class="ecm-step" data-step="3"><span class="ecm-step-no">3</span><span class="ecm-step-label">Fit ECM</span></li>
+          <li class="ecm-step" data-step="4"><span class="ecm-step-no">4</span><span class="ecm-step-label">Results</span></li>
+        </ol>
+
+        <p class="err" id="ecmErr" hidden></p>
+
+        <!-- Step 1: Select -->
+        <section class="ecm-stage panel" id="ecmStage1">
+          <div class="ecm-mode-row">
+            <label class="ecm-radio"><input type="radio" name="ecmMode" value="single" checked /><span>Single <code>.xlsx</code> file</span></label>
+            <label class="ecm-radio"><input type="radio" name="ecmMode" value="folder" /><span>Folder of <code>.xlsx</code> files (recursive)</span></label>
+          </div>
+          <div class="ecm-field-row">
+            <button type="button" id="ecmPick" class="ecm-primary">Choose file</button>
+            <div class="folder-path" id="ecmPath">No file selected</div>
+          </div>
+          <div class="ecm-folder-info" id="ecmFolderInfo" hidden></div>
+          <div class="ecm-grid2">
+            <div class="field">
+              <label for="ecmSheet">Worksheet name</label>
+              <input type="text" id="ecmSheet" value="Record List1" />
+            </div>
+            <div class="field">
+              <label for="ecmCapacity">Capacity (Ah)</label>
+              <div class="ecm-cap-wrap">
+                <input type="number" id="ecmCapacity" step="0.0001" placeholder="auto-detect" />
+                <button type="button" id="ecmDetectCap" class="secondary small" disabled>Auto-detect</button>
+              </div>
+              <span class="ecm-cap-note" id="ecmCapNote"></span>
+            </div>
+          </div>
+          <div class="ecm-actions">
+            <button type="button" id="ecmStep1Next" class="ecm-primary" disabled>Next →</button>
+          </div>
+        </section>
+
+        <!-- Step 2: Extract (single-file) -->
+        <section class="ecm-stage panel" id="ecmStage2" hidden>
+          <p class="muted">Detect the HPPC pulse region and save the pulse data for <code id="ecmStage2File"></code>.</p>
+          <div class="ecm-actions">
+            <button type="button" id="ecmRunExtract" class="ecm-primary">Extract pulses</button>
+          </div>
+          <div class="loading inline-loading" id="ecmExtractLoading" hidden>
+            <div class="spinner"></div><span>Reading workbook & extracting pulses…</span>
+          </div>
+          <div class="ecm-extract-result" id="ecmExtractResult" hidden></div>
+          <div class="ecm-actions ecm-actions-split">
+            <button type="button" id="ecmStep2Back" class="secondary">← Back</button>
+            <button type="button" id="ecmStep2Next" class="ecm-primary" disabled>Next →</button>
+          </div>
+        </section>
+
+        <!-- Step 3: Fit config -->
+        <section class="ecm-stage panel" id="ecmStage3" hidden>
+          <div class="ecm-grid2">
+            <div class="field">
+              <label>Model order</label>
+              <div class="ecm-mode-row">
+                <label class="ecm-radio"><input type="radio" name="ecmRcOrder" value="1" checked /><span>1RC (R0, R1, C1)</span></label>
+                <label class="ecm-radio"><input type="radio" name="ecmRcOrder" value="2" /><span>2RC (R0, R1, C1, R2, C2)</span></label>
+              </div>
+            </div>
+            <div class="field">
+              <label for="ecmAlgo">Fitting algorithm</label>
+              <select id="ecmAlgo"></select>
+            </div>
+          </div>
+          <div class="ecm-actions ecm-actions-split">
+            <button type="button" id="ecmStep3Back" class="secondary">← Back</button>
+            <button type="button" id="ecmRunFit" class="ecm-primary">Run fit</button>
+          </div>
+          <div class="loading inline-loading" id="ecmFitLoading" hidden>
+            <div class="spinner"></div><span id="ecmFitStatus">Fitting ECM…</span>
+          </div>
+          <div class="ecm-progress" id="ecmBatchProgress" hidden>
+            <div class="ecm-progress-bar"><div class="ecm-progress-fill" id="ecmBatchFill"></div></div>
+            <div class="ecm-progress-text" id="ecmBatchText"></div>
+          </div>
+        </section>
+
+        <!-- Step 4: Results -->
+        <section class="ecm-stage panel" id="ecmStage4" hidden>
+          <div class="ecm-results-head" id="ecmResultsHead"></div>
+          <div class="ecm-metrics" id="ecmMetrics"></div>
+          <div class="ecm-result-table" id="ecmResultTable"></div>
+          <div class="ecm-result-plots" id="ecmResultPlots"></div>
+          <div class="ecm-batch-summary" id="ecmBatchSummary" hidden></div>
+          <div class="ecm-actions">
+            <button type="button" id="ecmRestart" class="secondary">↺ Start over</button>
+          </div>
+        </section>
+      </section>
     </main>
   </div>
 
-  <script src="/app.js?v=40"></script>
+  <script src="/app.js?v=41"></script>
+  <script src="/ecm.js?v=1"></script>
 </body>
 </html>

@@ -12,10 +12,14 @@ import json
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from webapp.api.models import (
+    EcmCapacityBody,
+    EcmExtractBody,
+    EcmFitBody,
+    EcmPickBody,
     FeaturePlotBody,
     FolderLogavgBody,
     FolderPathBody,
@@ -89,9 +93,14 @@ def _data_meta(obj: dict[str, Any]) -> dict[str, Any]:
 
 
 def _run_tk_dialog(kind: str) -> str:
-    """kind: 'folder' or 'file'. Returns selected path or ''."""
+    """kind: 'folder', 'file' (.pkl) or 'xlsx'. Returns selected path or ''."""
     if kind == "folder":
         call = "filedialog.askdirectory(title='Select data folder')"
+    elif kind == "xlsx":
+        call = (
+            "filedialog.askopenfilename(title='Select .xlsx file',"
+            "filetypes=[('Excel files','*.xlsx'),('All files','*.*')])"
+        )
     else:
         call = (
             "filedialog.askopenfilename(title='Select .pkl file',"
@@ -493,6 +502,192 @@ async def save_screenshot(body: ScreenshotBody) -> dict[str, Any]:
     out_path = docs_dir / safe_name
     out_path.write_bytes(base64.b64decode(raw))
     return {"saved": str(out_path)}
+
+
+# --------------------------------------------------------------------------- #
+# ECM (Equivalent Circuit Model) tab
+# --------------------------------------------------------------------------- #
+from webapp.data_processing import ecm_runner  # noqa: E402
+
+
+@app.get("/api/ecm/algorithms")
+def ecm_algorithms() -> dict[str, Any]:
+    return {"algorithms": list(ecm_runner.algorithms()), "default_sheet": ecm_runner.DEFAULT_SHEET}
+
+
+@app.post("/api/ecm/pick")
+def ecm_pick(body: EcmPickBody) -> dict[str, Any]:
+    kind = "folder" if body.kind == "folder" else "xlsx"
+    try:
+        path = _run_tk_dialog(kind)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"path": path}
+
+
+@app.get("/api/ecm/scan-folder")
+def ecm_scan_folder(dir: str) -> dict[str, Any]:
+    folder = Path(dir.strip().strip('"\''))
+    if not folder.is_dir():
+        raise HTTPException(status_code=400, detail=f"Not a folder: {folder}")
+    files = ecm_runner.find_xlsx_files(folder)
+    return {
+        "folder": str(folder),
+        "count": len(files),
+        "files": [{"name": p.name, "path": str(p)} for p in files],
+    }
+
+
+@app.post("/api/ecm/detect-capacity")
+async def ecm_detect_capacity(body: EcmCapacityBody) -> dict[str, Any]:
+    path = Path(body.path.strip().strip('"\''))
+    if not path.is_file():
+        raise HTTPException(status_code=400, detail=f"File not found: {path}")
+    try:
+        cap = await asyncio.to_thread(ecm_runner.detect_capacity, path, body.sheet)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Capacity detection failed: {exc}") from exc
+    return cap
+
+
+@app.post("/api/ecm/extract")
+async def ecm_extract(body: EcmExtractBody) -> dict[str, Any]:
+    path = Path(body.path.strip().strip('"\''))
+    if not path.is_file():
+        raise HTTPException(status_code=400, detail=f"File not found: {path}")
+
+    stem = path.stem
+    out_dir = ecm_runner.output_dir_for(stem)
+    pulse_csv = out_dir / f"{stem}_pulses.csv"
+    pulse_png = out_dir / f"{stem}_pulses.png"
+
+    def _work() -> dict[str, Any]:
+        cap = ecm_runner.detect_capacity(path, body.sheet, body.pulse_max_seconds)
+        extract = ecm_runner.extract_pulses(
+            path, pulse_csv, body.sheet, body.pulse_max_seconds, save_plot=pulse_png
+        )
+        return {"capacity_detected": cap, "extract": extract}
+
+    try:
+        result = await asyncio.to_thread(_work)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Extraction failed: {exc}") from exc
+
+    result["stem"] = stem
+    result["out_dir"] = str(out_dir)
+    return result
+
+
+@app.post("/api/ecm/fit")
+async def ecm_fit(body: EcmFitBody) -> dict[str, Any]:
+    path = Path(body.path.strip().strip('"\''))
+    if not path.is_file():
+        raise HTTPException(status_code=400, detail=f"File not found: {path}")
+    if body.rc_order not in (1, 2):
+        raise HTTPException(status_code=400, detail="rc_order must be 1 or 2")
+
+    stem = path.stem
+    out_dir = ecm_runner.output_dir_for(stem)
+    pulse_csv = out_dir / f"{stem}_pulses.csv"
+
+    def _work() -> dict[str, Any]:
+        # Extract on demand if the pulse CSV is missing.
+        if not pulse_csv.exists():
+            ecm_runner.extract_pulses(
+                path, pulse_csv, body.sheet, body.pulse_max_seconds,
+                save_plot=out_dir / f"{stem}_pulses.png",
+            )
+        capacity = body.capacity
+        if not capacity:
+            cap = ecm_runner.detect_capacity(path, body.sheet, body.pulse_max_seconds)
+            capacity = cap.get("capacity")
+        return ecm_runner.fit_pulses(
+            pulse_csv, out_dir, stem,
+            rc_order=body.rc_order, algorithm=body.algorithm, capacity=capacity,
+        )
+
+    try:
+        fit = await asyncio.to_thread(_work)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Fit failed: {exc}") from exc
+
+    return {"name": path.name, "stem": stem, "out_dir": str(out_dir), "fit": fit}
+
+
+@app.get("/api/ecm/batch-stream")
+async def ecm_batch_stream(
+    dir: str,
+    rc_order: int = 1,
+    algorithm: str = "curve_fit",
+    sheet: str = "Record List1",
+    capacity: float | None = None,
+    pulse_max_seconds: float = 60.0,
+) -> StreamingResponse:
+    folder = Path(dir.strip().strip('"\''))
+    if not folder.is_dir():
+        raise HTTPException(status_code=400, detail=f"Not a folder: {folder}")
+    if rc_order not in (1, 2):
+        raise HTTPException(status_code=400, detail="rc_order must be 1 or 2")
+
+    files = ecm_runner.find_xlsx_files(folder)
+
+    async def generate():
+        total = len(files)
+        if total == 0:
+            yield f"data: {json.dumps({'done': True, 'total': 0, 'results': [], 'errors': []})}\n\n"
+            return
+
+        results: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        full_results: list[dict[str, Any]] = []
+
+        for i, path in enumerate(files):
+            yield f"data: {json.dumps({'progress': round(i / total * 100), 'current': i + 1, 'total': total, 'file': path.name})}\n\n"
+            try:
+                res = await asyncio.to_thread(
+                    ecm_runner.process_file,
+                    path, rc_order, algorithm, sheet, capacity, pulse_max_seconds,
+                )
+                full_results.append(res)
+                results.append({
+                    "name": res["name"], "stem": res["stem"],
+                    "out_dir": res["out_dir"],
+                    "capacity_used": res["capacity_used"],
+                    "mae": res["fit"]["mae"], "rmse": res["fit"]["rmse"],
+                })
+            except Exception as exc:
+                errors.append({"name": path.name, "error": str(exc)})
+
+        # Pick one already-processed file at random to preview on screen.
+        import random
+        preview = random.choice(full_results) if full_results else None
+
+        done = {
+            "done": True, "total": total,
+            "ok_count": len(results), "error_count": len(errors),
+            "results": results, "errors": errors,
+            "output_root": str(ecm_runner.OUTPUT_ROOT),
+            "preview": preview,
+        }
+        yield f"data: {json.dumps(done)}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/api/ecm/image")
+def ecm_image(path: str) -> FileResponse:
+    p = Path(path).resolve()
+    try:
+        p.relative_to(ecm_runner.OUTPUT_ROOT.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Image path outside output folder")
+    if not p.is_file():
+        raise HTTPException(status_code=404, detail="Image not found")
+    return FileResponse(str(p), media_type="image/png")
 
 
 if STATIC_DIR.is_dir():

@@ -300,11 +300,16 @@ function switchTab(name) {
   $("deepPanel").hidden = name !== "deep";
   $("featurePanel").hidden = name !== "feature";
   $("summaryPanel").hidden = name !== "summary";
+  $("ecmPanel").hidden = name !== "ecm";
   $("generalPanel").classList.toggle("active", name === "general");
   $("deepPanel").classList.toggle("active", name === "deep");
   $("featurePanel").classList.toggle("active", name === "feature");
   $("summaryPanel").classList.toggle("active", name === "summary");
+  $("ecmPanel").classList.toggle("active", name === "ecm");
+  // The ECM tab is a self-contained workflow: hide the data-source sidebar.
+  document.body.classList.toggle("ecm-active", name === "ecm");
   if (name === "summary") renderDataSummary();
+  if (name === "ecm" && window.ecmInit) window.ecmInit();
   setTimeout(() => {
     state.charts.forEach((chart) => Plotly.Plots.resize(chart));
   }, 0);
