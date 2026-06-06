@@ -1781,3 +1781,34 @@ body.ecm-active .sidebar { display: none; }
 .ecm-errors ul { margin: 0.3rem 0 0; padding-left: 1.2rem; }
 
 .tab-ecm { border-left: 2px solid var(--accent); }
+
+/* ECM optional limits / detected ranges / warnings */
+.ecm-grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; }
+
+.ecm-detected {
+  display: flex; flex-wrap: wrap; gap: 1rem; align-items: center;
+  font-size: 0.84rem; color: var(--text);
+  background: var(--panel-soft); border: 1px solid var(--border);
+  border-radius: 8px; padding: 0.5rem 0.75rem;
+}
+.ecm-detected-label { font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.72rem; }
+.ecm-detected-note { color: var(--muted); font-style: italic; }
+
+.ecm-advanced { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); padding: 0.4rem 0.75rem; }
+.ecm-advanced > summary { cursor: pointer; font-weight: 600; color: var(--text); padding: 0.3rem 0; }
+.ecm-advanced-help { font-size: 0.8rem; color: var(--muted); margin: 0.4rem 0 0.8rem; }
+
+.ecm-warnings {
+  border: 1px solid var(--warning); border-left-width: 4px; border-radius: 8px;
+  background: color-mix(in srgb, var(--warning) 12%, var(--panel));
+  color: var(--text); padding: 0.6rem 0.9rem; font-size: 0.86rem; margin: 0.6rem 0;
+}
+.ecm-warnings ul { margin: 0.3rem 0 0; padding-left: 1.2rem; }
+
+/* ECM OCV result block */
+.ecm-ocv { margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 0.9rem; }
+.ecm-ocv h4 { margin: 0 0 0.6rem; color: var(--text); }
+.ecm-ocv figure { margin: 0; }
+.ecm-ocv-table { margin-top: 0.6rem; }
+.ecm-ocv-table > summary { cursor: pointer; font-weight: 600; color: var(--text); padding: 0.3rem 0; }
+.ecm-ocv-table .ecm-result-table { max-height: 280px; overflow: auto; }

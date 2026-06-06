@@ -68,3 +68,12 @@ class EcmFitBody(BaseModel):
     algorithm: str = "curve_fit"
     capacity: float | None = None
     pulse_max_seconds: float = 60.0
+    # Optional limits. When omitted, detected HPPC-window ranges are used for the
+    # voltage clip; current limits only drive warnings.
+    v_max: float | None = None
+    v_min: float | None = None
+    i_chg_max: float | None = None
+    i_dch_max: float | None = None
+    nominal_capacity: float | None = None  # reference only; does not affect SOC
+    ocv_mode: str = "both"  # "tabulated" | "analytical" | "both"
+    ocv_poly_degree: int = 8

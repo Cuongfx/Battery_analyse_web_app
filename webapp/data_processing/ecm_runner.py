@@ -25,6 +25,7 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 from webapp.config import PROJECT_ROOT  # noqa: E402
+from webapp.data_processing import ecm_ocv  # noqa: E402
 
 # Make the standalone ``equiv-circ-model`` package importable.
 EQUIV_DIR = PROJECT_ROOT / "equiv-circ-model"
@@ -70,21 +71,30 @@ def _block_ah(data: dict[str, Any], block: tuple[int, int]) -> float:
     return float(np.trapz(i, t) / 3600.0)
 
 
-def detect_capacity(
-    xlsx_path: Path,
-    sheet: str = DEFAULT_SHEET,
-    pulse_max_seconds: float = DEFAULT_PULSE_MAX_SECONDS,
-) -> dict[str, Any]:
-    """Estimate cell capacity from a Neware HPPC + final-CCCV file.
-
-    Returns ``{"qd": Ah, "qc": Ah, "capacity": Ah}`` where ``qd`` is the total
-    discharge throughput across the HPPC region (full -> empty) and ``qc`` is the
-    charge throughput of the trailing full CCCV charge. ``capacity`` prefers
-    ``qd`` and falls back to ``qc``.
-    """
+def _classify(xlsx_path, sheet, pulse_max_seconds):
+    """Load the workbook once and classify every step block."""
     data = extract_hppc.load_records(xlsx_path, sheet)
     blocks = extract_hppc.build_blocks(data["command"])
     kinds = [extract_hppc.classify_block(data, b, pulse_max_seconds) for b in blocks]
+    return data, blocks, kinds
+
+
+def _region_indices(kinds):
+    """Return ``(first_pulse, final_charge)`` block indices for the HPPC region."""
+    first_pulse = next((i for i, k in enumerate(kinds) if k == "discharge_pulse"), None)
+    final_charge = None
+    if first_pulse is not None:
+        for i in range(len(kinds) - 1, first_pulse, -1):
+            if kinds[i] == "full_charge":
+                final_charge = i
+            elif final_charge is not None and kinds[i] not in ("full_charge", "rest"):
+                break
+    return first_pulse, final_charge
+
+
+def _capacity_and_ranges(data, blocks, kinds, first_pulse, final_charge):
+    """Qd/Qc capacity plus HPPC-window voltage/current ranges (one pass)."""
+    region_end = final_charge if final_charge is not None else len(blocks)
 
     # Qc: trailing run of full-charge blocks (the final CCCV), skipping rests.
     qc = 0.0
@@ -96,17 +106,6 @@ def detect_capacity(
         elif qc > 0:
             break
 
-    # Locate the HPPC region: first discharge pulse .. start of the final charge.
-    first_pulse = next((i for i, k in enumerate(kinds) if k == "discharge_pulse"), None)
-    final_charge = None
-    if first_pulse is not None:
-        for i in range(len(kinds) - 1, first_pulse, -1):
-            if kinds[i] == "full_charge":
-                final_charge = i
-            elif final_charge is not None and kinds[i] not in ("full_charge", "rest"):
-                break
-    region_end = final_charge if final_charge is not None else len(blocks)
-
     # Qd: discharge capacity = throughput of the constant-discharge (SOC-stepping)
     # steps only. The short HPPC pulses are excluded because each discharge pulse
     # is offset by a charge pulse and nets ~zero SOC change.
@@ -117,27 +116,190 @@ def detect_capacity(
                 qd += abs(_block_ah(data, blocks[i]))
 
     capacity = qd if qd > 0 else qc
+
+    v_min = v_max = i_chg_max = i_dch_max = None
+    if first_pulse is not None and region_end > first_pulse:
+        start_row = blocks[first_pulse][0]
+        end_row = blocks[region_end - 1][1]
+        v_region = data["voltage"][start_row : end_row + 1]
+        i_region = data["current"][start_row : end_row + 1]
+        if len(v_region):
+            v_min = round(float(np.min(v_region)), 4)
+            v_max = round(float(np.max(v_region)), 4)
+            i_chg_max = round(float(np.max(i_region)), 4)   # most positive (charge)
+            i_dch_max = round(float(np.min(i_region)), 4)   # most negative (discharge)
+
     return {
         "qd": round(qd, 4),
         "qc": round(qc, 4),
         "capacity": round(capacity, 4) if capacity else None,
+        "v_min": v_min,
+        "v_max": v_max,
+        "i_chg_max": i_chg_max,
+        "i_dch_max": i_dch_max,
     }
 
 
-def save_capacity_csv(
+def detect_capacity(
+    xlsx_path: Path,
+    sheet: str = DEFAULT_SHEET,
+    pulse_max_seconds: float = DEFAULT_PULSE_MAX_SECONDS,
+) -> dict[str, Any]:
+    """Estimate cell capacity (Qd/Qc) and HPPC-window V/I ranges from one file.
+
+    ``qd`` is the constant-discharge throughput (full -> empty), ``qc`` the
+    trailing full CCCV charge; ``capacity`` prefers ``qd`` and falls back to ``qc``.
+    """
+    data, blocks, kinds = _classify(xlsx_path, sheet, pulse_max_seconds)
+    first_pulse, final_charge = _region_indices(kinds)
+    return _capacity_and_ranges(data, blocks, kinds, first_pulse, final_charge)
+
+
+def analyze_hppc(
+    xlsx_path: Path,
+    sheet: str = DEFAULT_SHEET,
+    pulse_max_seconds: float = DEFAULT_PULSE_MAX_SECONDS,
+    capacity_override: float | None = None,
+) -> dict[str, Any]:
+    """Single-load analysis: capacity + ranges + OCV anchors.
+
+    ``capacity_override`` (if given) is the capacity used for the OCV SOC axis,
+    matching the value used for the fit; otherwise the detected capacity is used.
+    """
+    data, blocks, kinds = _classify(xlsx_path, sheet, pulse_max_seconds)
+    first_pulse, final_charge = _region_indices(kinds)
+    cap = _capacity_and_ranges(data, blocks, kinds, first_pulse, final_charge)
+
+    soc_capacity = capacity_override or cap.get("capacity")
+    ocv = ecm_ocv.estimate_ocv(
+        data["time_s"], data["current"], data["voltage"],
+        blocks, kinds, first_pulse, final_charge, soc_capacity,
+    )
+    return {
+        "capacity": cap,
+        "ocv_anchors": ocv["anchors"],
+        "ocv_warnings": ocv["warnings"],
+    }
+
+
+def build_ocv_outputs(
     out_dir: Path,
     stem: str,
-    qd: float | None,
-    qc: float | None,
-    capacity_used: float | None,
-) -> Path:
-    """Write the detected Qd/Qc and the capacity used for SOC to a CSV."""
+    anchors: list,
+    ocv_mode: str = "both",
+    poly_degree: int = 8,
+    save_plot: bool = True,
+) -> dict[str, Any]:
+    """Build the OCV table/polynomial, save the CSV + PNG, return a payload."""
+    table = ecm_ocv.ocv_table(anchors)
+    poly = (
+        ecm_ocv.fit_ocv_polynomial(anchors, poly_degree)
+        if ocv_mode in ("analytical", "both")
+        else None
+    )
+    endpoints = ecm_ocv.ocv_endpoints(anchors)
+
+    ocv_csv = ecm_ocv.save_ocv_csv(out_dir, stem, table, poly) if anchors else None
+    ocv_png = out_dir / f"{stem}_ocv.png"
+    if save_plot and anchors:
+        ecm_ocv.plot_ocv(anchors, table, poly, ocv_png, show=False)
+    else:
+        ocv_png = None
+
+    return {
+        "mode": ocv_mode,
+        "anchors": anchors,
+        "table": table,
+        "poly": poly,
+        "endpoints": endpoints,
+        "csv": str(ocv_csv) if ocv_csv else None,
+        "png": str(ocv_png) if ocv_png else None,
+    }
+
+
+def save_summary_csv(out_dir: Path, stem: str, summary: dict[str, Any]) -> Path:
+    """Write the capacity, detected ranges, applied limits and any warnings."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"{stem}_capacity.csv"
-    pd.DataFrame(
-        [{"qd_ah": qd, "qc_ah": qc, "capacity_used_ah": capacity_used}]
-    ).to_csv(path, index=False)
+    path = out_dir / f"{stem}_summary.csv"
+    row = dict(summary)
+    # Flatten the warnings list so it fits in one CSV cell.
+    if isinstance(row.get("warnings"), list):
+        row["warnings"] = " | ".join(row["warnings"])
+    pd.DataFrame([row]).to_csv(path, index=False)
     return path
+
+
+def validate_against_bounds(
+    detected: dict[str, Any],
+    *,
+    v_max: float | None = None,
+    v_min: float | None = None,
+    i_chg_max: float | None = None,
+    i_dch_max: float | None = None,
+) -> list[str]:
+    """Warn (non-blocking) when measured ranges fall outside user-entered bounds.
+
+    Compares the detected HPPC-window ranges in ``detected`` against optional
+    user limits. The measured signal is never modified.
+    """
+    warnings: list[str] = []
+    mv_min, mv_max = detected.get("v_min"), detected.get("v_max")
+    mi_chg, mi_dch = detected.get("i_chg_max"), detected.get("i_dch_max")
+
+    if v_max is not None and mv_max is not None and mv_max > v_max:
+        warnings.append(f"Measured Vmax {mv_max} V exceeds the entered max {v_max} V.")
+    if v_min is not None and mv_min is not None and mv_min < v_min:
+        warnings.append(f"Measured Vmin {mv_min} V is below the entered min {v_min} V.")
+    if i_chg_max is not None and mi_chg is not None and mi_chg > i_chg_max:
+        warnings.append(f"Measured charge current {mi_chg} A exceeds the entered max {i_chg_max} A.")
+    if i_dch_max is not None and mi_dch is not None and mi_dch < i_dch_max:
+        warnings.append(f"Measured discharge current {mi_dch} A exceeds the entered max {i_dch_max} A.")
+    return warnings
+
+
+def effective_v_limits(
+    detected: dict[str, Any],
+    v_min: float | None = None,
+    v_max: float | None = None,
+) -> tuple[float | None, float | None]:
+    """Voltage window to clip/plot with: user value if given, else detected."""
+    return (
+        v_min if v_min is not None else detected.get("v_min"),
+        v_max if v_max is not None else detected.get("v_max"),
+    )
+
+
+def build_summary(
+    detected: dict[str, Any],
+    capacity_used: float | None,
+    v_limits: tuple[float | None, float | None],
+    nominal_capacity: float | None,
+    warnings: list[str],
+    ocv: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Assemble the per-file summary written to ``<stem>_summary.csv``."""
+    summary = {
+        "qd_ah": detected.get("qd"),
+        "qc_ah": detected.get("qc"),
+        "capacity_used_ah": capacity_used,
+        "nominal_capacity_ah": nominal_capacity,
+        "v_min_detected": detected.get("v_min"),
+        "v_max_detected": detected.get("v_max"),
+        "i_chg_max_detected": detected.get("i_chg_max"),
+        "i_dch_max_detected": detected.get("i_dch_max"),
+        "v_min_used": v_limits[0],
+        "v_max_used": v_limits[1],
+        "warnings": warnings,
+    }
+    if ocv is not None:
+        ep = ocv.get("endpoints") or {}
+        poly = ocv.get("poly")
+        summary["ocv_100_v"] = ep.get("ocv_100")
+        summary["ocv_0_v"] = ep.get("ocv_0")
+        summary["ocv_poly_degree"] = poly["degree"] if poly else None
+        summary["ocv_poly_rmse"] = poly["rmse"] if poly else None
+        summary["ocv_poly_coeffs"] = ";".join(str(c) for c in poly["coeffs"]) if poly else None
+    return summary
 
 
 def extract_pulses(
@@ -186,8 +348,15 @@ def fit_pulses(
     capacity: float | None = None,
     source: str = "pulse",
     save_plots: bool = True,
+    v_limits: tuple[float | None, float | None] | None = None,
 ) -> dict[str, Any]:
-    """Fit an ECM from an extracted pulse CSV and save params + plots."""
+    """Fit an ECM from an extracted pulse CSV and save params + plots.
+
+    ``v_limits`` is an optional ``(vmin, vmax)`` window. When given, the simulated
+    terminal voltage is clipped to it (a real cell cannot leave its voltage
+    window) before computing MAE/RMSE and plotting, and the fit-plot y-axis is
+    locked to it. The estimated R/C parameters are unaffected by clipping.
+    """
     config = EcmConfig(q_cell=capacity) if capacity else EcmConfig()
     hppc_data = CellHppcData(pulse_csv)
 
@@ -199,8 +368,18 @@ def fit_pulses(
         source=source,
     )
 
-    mae = mean_absolute_error(hppc_data.voltage, fit_result.vt)
-    rmse = root_mean_square_error(hppc_data.voltage, fit_result.vt)
+    vt = np.asarray(fit_result.vt, dtype=float)
+    ylim = None
+    if v_limits is not None:
+        vmin, vmax = v_limits
+        if vmin is not None or vmax is not None:
+            vt = np.clip(vt, vmin, vmax)
+        if vmin is not None and vmax is not None:
+            pad = max((vmax - vmin) * 0.05, 0.02)
+            ylim = (vmin - pad, vmax + pad)
+
+    mae = mean_absolute_error(hppc_data.voltage, vt)
+    rmse = root_mean_square_error(hppc_data.voltage, vt)
 
     out_dir.mkdir(parents=True, exist_ok=True)
     params_csv = out_dir / f"{stem}_{rc_order}rc_parameters.csv"
@@ -217,8 +396,9 @@ def fit_pulses(
         plot_hppc_fit(
             hppc_data.time,
             hppc_data.voltage,
-            fit_result.vt,
+            vt,
             rc_order=rc_order,
+            ylim=ylim,
             save_path=fit_png,
             show=False,
         )
@@ -252,13 +432,36 @@ def process_file(
     sheet: str = DEFAULT_SHEET,
     capacity_override: float | None = None,
     pulse_max_seconds: float = DEFAULT_PULSE_MAX_SECONDS,
+    v_max: float | None = None,
+    v_min: float | None = None,
+    i_chg_max: float | None = None,
+    i_dch_max: float | None = None,
+    nominal_capacity: float | None = None,
+    ocv_mode: str = "both",
+    ocv_poly_degree: int = 8,
 ) -> dict[str, Any]:
-    """Full pipeline for one file: detect capacity, extract, fit, save."""
+    """Full pipeline for one file: analyze, validate, extract, fit, OCV, save.
+
+    ``v_max``/``v_min``/``i_chg_max``/``i_dch_max`` are optional limits (else the
+    detected HPPC-window ranges are used). ``nominal_capacity`` is reference-only
+    and does not affect SOC.
+    """
     stem = xlsx_path.stem
     out_dir = output_dir_for(stem)
 
-    cap = detect_capacity(xlsx_path, sheet, pulse_max_seconds)
+    # One workbook load -> capacity, ranges and OCV anchors (SOC axis uses the
+    # same capacity as the fit).
+    capacity_hint = capacity_override
+    analysis = analyze_hppc(xlsx_path, sheet, pulse_max_seconds, capacity_hint)
+    cap = analysis["capacity"]
     capacity = capacity_override or cap.get("capacity") or EcmConfig().q_cell
+    capacity_used = round(float(capacity), 4)
+
+    v_limits = effective_v_limits(cap, v_min, v_max)
+    warnings = validate_against_bounds(
+        cap, v_max=v_max, v_min=v_min, i_chg_max=i_chg_max, i_dch_max=i_dch_max
+    )
+    warnings = warnings + list(analysis.get("ocv_warnings") or [])
 
     pulse_csv = out_dir / f"{stem}_pulses.csv"
     pulse_png = out_dir / f"{stem}_pulses.png"
@@ -269,10 +472,15 @@ def process_file(
     fit = fit_pulses(
         pulse_csv, out_dir, stem,
         rc_order=rc_order, algorithm=algorithm, capacity=capacity,
+        v_limits=v_limits,
     )
 
-    capacity_used = round(float(capacity), 4)
-    save_capacity_csv(out_dir, stem, cap.get("qd"), cap.get("qc"), capacity_used)
+    ocv = build_ocv_outputs(
+        out_dir, stem, analysis["ocv_anchors"], ocv_mode, ocv_poly_degree
+    )
+
+    summary = build_summary(cap, capacity_used, v_limits, nominal_capacity, warnings, ocv)
+    save_summary_csv(out_dir, stem, summary)
 
     return {
         "name": xlsx_path.name,
@@ -281,8 +489,12 @@ def process_file(
         "out_dir": str(out_dir),
         "capacity_detected": cap,
         "capacity_used": capacity_used,
+        "nominal_capacity": nominal_capacity,
+        "v_limits_used": list(v_limits),
+        "warnings": warnings,
         "extract": extract,
         "fit": fit,
+        "ocv": ocv,
     }
 
 

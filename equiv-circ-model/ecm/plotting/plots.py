@@ -17,9 +17,12 @@ def config_ax(ax, xylabels=None, title=None, loc=None):
         ax.legend(loc=loc)
 
 
-def plot_hppc_fit(time, measured_voltage, fitted_voltage, *, rc_order=None, save_path=None, show=True):
+def plot_hppc_fit(time, measured_voltage, fitted_voltage, *, rc_order=None, ylim=None, save_path=None, show=True):
     """
     Plot measured HPPC voltage against the fitted ECM voltage.
+
+    ``ylim`` optionally locks the voltage axis to a ``(low, high)`` range so the
+    plot is not auto-scaled by a simulated overshoot.
     """
     import matplotlib.pyplot as plt
 
@@ -31,6 +34,8 @@ def plot_hppc_fit(time, measured_voltage, fitted_voltage, *, rc_order=None, save
 
     ax_voltage.plot(time, measured_voltage, color="C3", label="HPPC data")
     ax_voltage.plot(time, fitted_voltage, color="k", linestyle="--", label="ECM fit")
+    if ylim is not None:
+        ax_voltage.set_ylim(ylim)
     config_ax(ax_voltage, xylabels=("", "Voltage [V]"), title=title, loc="best")
 
     ax_error.plot(time, abs(measured_voltage - fitted_voltage), color="C0", label="absolute error")

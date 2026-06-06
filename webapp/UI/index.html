@@ -394,14 +394,44 @@
               <input type="text" id="ecmSheet" value="Record List1" />
             </div>
             <div class="field">
-              <label for="ecmCapacity">Capacity (Ah)</label>
+              <label for="ecmCapacity">Capacity for SOC (Ah, optional)</label>
               <div class="ecm-cap-wrap">
-                <input type="number" id="ecmCapacity" step="0.0001" placeholder="auto-detect" />
+                <input type="number" id="ecmCapacity" step="0.0001" placeholder="auto-detect (Qd)" />
                 <button type="button" id="ecmDetectCap" class="secondary small" disabled>Auto-detect</button>
               </div>
               <span class="ecm-cap-note" id="ecmCapNote"></span>
             </div>
           </div>
+
+          <div class="ecm-detected" id="ecmDetected" hidden></div>
+
+          <details class="ecm-advanced">
+            <summary>Optional limits — improve the fit (leave blank to auto-detect)</summary>
+            <p class="ecm-advanced-help">Voltage limits clip the simulated voltage and lock the plot axis. Current limits only raise warnings if the data exceeds them (enter discharge current as a negative number). Nominal capacity is shown for reference only.</p>
+            <div class="ecm-grid3">
+              <div class="field">
+                <label for="ecmVMax">Max voltage (V)</label>
+                <input type="number" id="ecmVMax" step="0.001" placeholder="auto" />
+              </div>
+              <div class="field">
+                <label for="ecmVMin">Min voltage (V)</label>
+                <input type="number" id="ecmVMin" step="0.001" placeholder="auto" />
+              </div>
+              <div class="field">
+                <label for="ecmIChg">Max charge current (A, +)</label>
+                <input type="number" id="ecmIChg" step="0.001" placeholder="auto" />
+              </div>
+              <div class="field">
+                <label for="ecmIDch">Max discharge current (A, −)</label>
+                <input type="number" id="ecmIDch" step="0.001" placeholder="auto, e.g. -12" />
+              </div>
+              <div class="field">
+                <label for="ecmNominal">Nominal capacity (Ah, reference)</label>
+                <input type="number" id="ecmNominal" step="0.0001" placeholder="optional" />
+              </div>
+            </div>
+          </details>
+
           <div class="ecm-actions">
             <button type="button" id="ecmStep1Next" class="ecm-primary" disabled>Next →</button>
           </div>
@@ -437,6 +467,14 @@
               <label for="ecmAlgo">Fitting algorithm</label>
               <select id="ecmAlgo"></select>
             </div>
+            <div class="field">
+              <label for="ecmOcvMode">OCV output</label>
+              <select id="ecmOcvMode">
+                <option value="both" selected>Tabulated + analytical</option>
+                <option value="tabulated">Tabulated only</option>
+                <option value="analytical">Analytical (polynomial)</option>
+              </select>
+            </div>
           </div>
           <div class="ecm-actions ecm-actions-split">
             <button type="button" id="ecmStep3Back" class="secondary">← Back</button>
@@ -455,8 +493,10 @@
         <section class="ecm-stage panel" id="ecmStage4" hidden>
           <div class="ecm-results-head" id="ecmResultsHead"></div>
           <div class="ecm-metrics" id="ecmMetrics"></div>
+          <div class="ecm-warnings" id="ecmWarnings" hidden></div>
           <div class="ecm-result-table" id="ecmResultTable"></div>
           <div class="ecm-result-plots" id="ecmResultPlots"></div>
+          <div class="ecm-ocv" id="ecmOcv" hidden></div>
           <div class="ecm-batch-summary" id="ecmBatchSummary" hidden></div>
           <div class="ecm-actions">
             <button type="button" id="ecmRestart" class="secondary">↺ Start over</button>
@@ -467,6 +507,6 @@
   </div>
 
   <script src="/app.js?v=41"></script>
-  <script src="/ecm.js?v=2"></script>
+  <script src="/ecm.js?v=4"></script>
 </body>
 </html>

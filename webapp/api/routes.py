@@ -591,25 +591,50 @@ async def ecm_fit(body: EcmFitBody) -> dict[str, Any]:
     pulse_csv = out_dir / f"{stem}_pulses.csv"
 
     def _work() -> dict[str, Any]:
-        # Extract on demand if the pulse CSV is missing.
+        # Extract on demand if the pulse CSV is missing (reuses Step-2 output).
         if not pulse_csv.exists():
             ecm_runner.extract_pulses(
                 path, pulse_csv, body.sheet, body.pulse_max_seconds,
                 save_plot=out_dir / f"{stem}_pulses.png",
             )
-        # Always detect Qd/Qc so they can be reported; a user value overrides
-        # only the capacity used for SOC.
-        cap = ecm_runner.detect_capacity(path, body.sheet, body.pulse_max_seconds)
-        capacity = body.capacity or cap.get("capacity")
-        capacity_used = round(float(capacity), 4) if capacity else None
-        ecm_runner.save_capacity_csv(
-            out_dir, stem, cap.get("qd"), cap.get("qc"), capacity_used
+        # One load -> capacity, ranges and OCV anchors (SOC axis uses the same
+        # capacity as the fit). A user value overrides only the SOC capacity.
+        capacity = body.capacity
+        analysis = ecm_runner.analyze_hppc(
+            path, body.sheet, body.pulse_max_seconds, capacity
         )
+        cap = analysis["capacity"]
+        capacity = capacity or cap.get("capacity")
+        capacity_used = round(float(capacity), 4) if capacity else None
+
+        v_limits = ecm_runner.effective_v_limits(cap, body.v_min, body.v_max)
+        warnings = ecm_runner.validate_against_bounds(
+            cap, v_max=body.v_max, v_min=body.v_min,
+            i_chg_max=body.i_chg_max, i_dch_max=body.i_dch_max,
+        )
+        warnings = warnings + list(analysis.get("ocv_warnings") or [])
+
         fit = ecm_runner.fit_pulses(
             pulse_csv, out_dir, stem,
             rc_order=body.rc_order, algorithm=body.algorithm, capacity=capacity,
+            v_limits=v_limits,
         )
-        return {"capacity_detected": cap, "capacity_used": capacity_used, "fit": fit}
+
+        ocv = ecm_runner.build_ocv_outputs(
+            out_dir, stem, analysis["ocv_anchors"], body.ocv_mode, body.ocv_poly_degree
+        )
+
+        summary = ecm_runner.build_summary(
+            cap, capacity_used, v_limits, body.nominal_capacity, warnings, ocv
+        )
+        ecm_runner.save_summary_csv(out_dir, stem, summary)
+
+        return {
+            "capacity_detected": cap, "capacity_used": capacity_used,
+            "nominal_capacity": body.nominal_capacity,
+            "v_limits_used": list(v_limits), "warnings": warnings,
+            "fit": fit, "ocv": ocv,
+        }
 
     try:
         result = await asyncio.to_thread(_work)
@@ -620,7 +645,11 @@ async def ecm_fit(body: EcmFitBody) -> dict[str, Any]:
         "name": path.name, "stem": stem, "out_dir": str(out_dir),
         "capacity_detected": result["capacity_detected"],
         "capacity_used": result["capacity_used"],
+        "nominal_capacity": result["nominal_capacity"],
+        "v_limits_used": result["v_limits_used"],
+        "warnings": result["warnings"],
         "fit": result["fit"],
+        "ocv": result["ocv"],
     }
 
 
@@ -632,6 +661,13 @@ async def ecm_batch_stream(
     sheet: str = "Record List1",
     capacity: float | None = None,
     pulse_max_seconds: float = 60.0,
+    v_max: float | None = None,
+    v_min: float | None = None,
+    i_chg_max: float | None = None,
+    i_dch_max: float | None = None,
+    nominal_capacity: float | None = None,
+    ocv_mode: str = "both",
+    ocv_poly_degree: int = 8,
 ) -> StreamingResponse:
     folder = Path(dir.strip().strip('"\''))
     if not folder.is_dir():
@@ -657,11 +693,13 @@ async def ecm_batch_stream(
                 res = await asyncio.to_thread(
                     ecm_runner.process_file,
                     path, rc_order, algorithm, sheet, capacity, pulse_max_seconds,
+                    v_max, v_min, i_chg_max, i_dch_max, nominal_capacity,
+                    ocv_mode, ocv_poly_degree,
                 )
                 full_results.append(res)
                 results.append({
                     "name": res["name"], "stem": res["stem"],
-                    "out_dir": res["out_dir"],
+                    "out_dir": res["out_dir"], "warnings": res["warnings"],
                     "capacity_used": res["capacity_used"],
                     "mae": res["fit"]["mae"], "rmse": res["fit"]["rmse"],
                 })

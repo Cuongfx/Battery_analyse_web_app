@@ -96,6 +96,7 @@
       : "Capacity is auto-detected per file. A value entered here overrides all files.";
     state.path = "";
     state.detected = null;
+    eg("ecmDetected").hidden = true;
     eg("ecmStep1Next").disabled = true;
     eg("ecmDetectCap").disabled = true;
   }
@@ -145,15 +146,46 @@
       note.textContent =
         `Qd ≈ ${fmt(cap.qd)} Ah (HPPC),  Qc ≈ ${fmt(cap.qc)} Ah (CCCV)` +
         (cap.capacity != null ? `  →  using ${fmt(cap.capacity)} Ah` : "");
+      renderDetected(cap);
     } catch (err) {
       note.textContent = "Capacity auto-detect failed: " + (err.message || err);
     }
+  }
+
+  function renderDetected(cap) {
+    const box = eg("ecmDetected");
+    if (cap.v_min == null && cap.i_chg_max == null) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    box.innerHTML =
+      `<span class="ecm-detected-label">Detected (HPPC window):</span>` +
+      `<span>V ${fmt(cap.v_min)}–${fmt(cap.v_max)} V</span>` +
+      `<span>I charge max ${fmt(cap.i_chg_max)} A</span>` +
+      `<span>I discharge max ${fmt(cap.i_dch_max)} A</span>` +
+      `<span class="ecm-detected-note">Blank limits below use these.</span>`;
   }
 
   function currentCapacity() {
     const raw = eg("ecmCapacity").value.trim();
     if (raw !== "") return Number(raw);
     return state.detected ? state.detected.capacity : null;
+  }
+
+  // Optional limits from the advanced panel; "" means "use detected".
+  function currentBounds() {
+    const num = (id) => {
+      const raw = eg(id).value.trim();
+      return raw === "" ? null : Number(raw);
+    };
+    return {
+      v_max: num("ecmVMax"),
+      v_min: num("ecmVMin"),
+      i_chg_max: num("ecmIChg"),
+      i_dch_max: num("ecmIDch"),
+      nominal_capacity: num("ecmNominal"),
+    };
   }
 
   // ---- step 2: extract (single) ------------------------------------------ //
@@ -210,10 +242,13 @@
         rc_order: state.rcOrder,
         algorithm: state.algorithm,
         capacity: currentCapacity(),
+        ocv_mode: eg("ecmOcvMode").value,
+        ...currentBounds(),
       });
       const cap = data.capacity_detected || {};
       renderResults(data.fit, {
         name: data.name, out_dir: data.out_dir, qd: cap.qd, qc: cap.qc,
+        nominal: data.nominal_capacity, warnings: data.warnings, ocv: data.ocv,
       });
       setStep(4);
     } catch (err) {
@@ -231,9 +266,14 @@
       algorithm: state.algorithm,
       sheet: eg("ecmSheet").value.trim() || "Record List1",
       pulse_max_seconds: "60",
+      ocv_mode: eg("ecmOcvMode").value,
     });
     const cap = currentCapacity();
     if (cap != null && !Number.isNaN(cap)) params.set("capacity", String(cap));
+    const bounds = currentBounds();
+    Object.keys(bounds).forEach((k) => {
+      if (bounds[k] != null && !Number.isNaN(bounds[k])) params.set(k, String(bounds[k]));
+    });
 
     const prog = eg("ecmBatchProgress");
     prog.hidden = false;
@@ -270,14 +310,29 @@
       `<h3>${meta.name}</h3>` +
       `<p class="muted">${fit.rc_order}RC · ${fit.algorithm} · capacity ${fmt(fit.capacity)} Ah</p>`;
 
+    const card = (label, val) =>
+      `<div class="ecm-metric"><span class="ecm-metric-label">${label}</span><span class="ecm-metric-val">${val}</span></div>`;
+    const ep = (meta.ocv && meta.ocv.endpoints) || {};
     const capMetrics =
-      (meta.qd != null ? `<div class="ecm-metric"><span class="ecm-metric-label">Qd (HPPC)</span><span class="ecm-metric-val">${fmt(meta.qd)} Ah</span></div>` : "") +
-      (meta.qc != null ? `<div class="ecm-metric"><span class="ecm-metric-label">Qc (CCCV)</span><span class="ecm-metric-val">${fmt(meta.qc)} Ah</span></div>` : "");
-    eg("ecmMetrics").innerHTML = `
-      <div class="ecm-metric"><span class="ecm-metric-label">MAE</span><span class="ecm-metric-val">${fmt(fit.mae)} V</span></div>
-      <div class="ecm-metric"><span class="ecm-metric-label">RMSE</span><span class="ecm-metric-val">${fmt(fit.rmse)} V</span></div>
-      ${capMetrics}
-    `;
+      (meta.qd != null ? card("Qd (HPPC)", `${fmt(meta.qd)} Ah`) : "") +
+      (meta.qc != null ? card("Qc (CCCV)", `${fmt(meta.qc)} Ah`) : "") +
+      (meta.nominal != null ? card("Nominal (ref)", `${fmt(meta.nominal)} Ah`) : "") +
+      (ep.ocv_100 != null ? card("OCV @100%", `${fmt(ep.ocv_100)} V`) : "") +
+      (ep.ocv_0 != null ? card("OCV @0%", `${fmt(ep.ocv_0)} V`) : "");
+    eg("ecmMetrics").innerHTML =
+      card("MAE", `${fmt(fit.mae)} V`) + card("RMSE", `${fmt(fit.rmse)} V`) + capMetrics;
+
+    const warnEl = eg("ecmWarnings");
+    if (meta.warnings && meta.warnings.length) {
+      warnEl.hidden = false;
+      warnEl.innerHTML =
+        `<b>⚠ ${meta.warnings.length} warning${meta.warnings.length === 1 ? "" : "s"}:</b><ul>` +
+        meta.warnings.map((w) => `<li>${w}</li>`).join("") +
+        `</ul>`;
+    } else {
+      warnEl.hidden = true;
+      warnEl.innerHTML = "";
+    }
 
     eg("ecmResultTable").innerHTML = renderTable(fit.columns, fit.rows);
 
@@ -286,11 +341,42 @@
     if (fit.params_png) plots.push(`<figure><figcaption>R / C / τ vs SOC</figcaption><img class="ecm-plot-img" src="${imgUrl(fit.params_png)}" alt="RC parameters" /></figure>`);
     eg("ecmResultPlots").innerHTML = plots.join("");
 
+    renderOcv(meta.ocv);
+
     eg("ecmBatchSummary").hidden = true;
     eg("ecmBatchSummary").innerHTML = "";
     if (meta.out_dir) {
       eg("ecmResultsHead").innerHTML += `<p class="ecm-saved-note">Saved to <code>${meta.out_dir}</code></p>`;
     }
+  }
+
+  // Estimated OCV vs SOC: plot + collapsible table.
+  function renderOcv(ocv) {
+    const box = eg("ecmOcv");
+    if (!ocv || !ocv.png) {
+      box.hidden = true;
+      box.innerHTML = "";
+      return;
+    }
+    box.hidden = false;
+    let tableRows = "";
+    const t = ocv.table || {};
+    if (t.soc && t.soc.length) {
+      tableRows = t.soc
+        .map((s, i) => `<tr><td>${fmt(s)}</td><td>${fmt(t.ocv[i])}</td></tr>`)
+        .join("");
+    }
+    const polyNote = ocv.poly
+      ? `<p class="ecm-saved-note">Polynomial fit: degree ${ocv.poly.degree}, RMSE ${fmt(ocv.poly.rmse)} V (coefficients in <code>${"<stem>_ocv.csv"}</code> / summary).</p>`
+      : "";
+    box.innerHTML = `
+      <h4>Estimated OCV vs SOC</h4>
+      <figure><img class="ecm-plot-img" src="${imgUrl(ocv.png)}" alt="OCV vs SOC" /></figure>
+      ${polyNote}
+      ${tableRows ? `<details class="ecm-ocv-table"><summary>OCV table (tabulated grid)</summary>
+        <div class="ecm-result-table"><table><thead><tr><th>SOC</th><th>OCV (V)</th></tr></thead><tbody>${tableRows}</tbody></table></div>
+      </details>` : ""}
+    `;
   }
 
   function renderBatchResults(msg) {
@@ -305,6 +391,8 @@
       const cap = msg.preview.capacity_detected || {};
       renderResults(msg.preview.fit, {
         name: msg.preview.name, out_dir: null, qd: cap.qd, qc: cap.qc,
+        nominal: msg.preview.nominal_capacity, warnings: msg.preview.warnings,
+        ocv: msg.preview.ocv,
       });
       eg("ecmResultsHead").innerHTML =
         `<h3>Batch complete — previewing a random file: ${msg.preview.name}</h3>` +
@@ -314,6 +402,8 @@
       eg("ecmMetrics").innerHTML = "";
       eg("ecmResultTable").innerHTML = "";
       eg("ecmResultPlots").innerHTML = "";
+      eg("ecmOcv").hidden = true;
+      eg("ecmOcv").innerHTML = "";
     }
 
     const summary = eg("ecmBatchSummary");
