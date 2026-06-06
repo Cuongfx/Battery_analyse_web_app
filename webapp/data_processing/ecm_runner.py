@@ -22,6 +22,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
 
 from webapp.config import PROJECT_ROOT  # noqa: E402
 
@@ -106,11 +107,13 @@ def detect_capacity(
                 break
     region_end = final_charge if final_charge is not None else len(blocks)
 
-    # Qd: discharge throughput (pulses + constant discharges) over the HPPC region.
+    # Qd: discharge capacity = throughput of the constant-discharge (SOC-stepping)
+    # steps only. The short HPPC pulses are excluded because each discharge pulse
+    # is offset by a charge pulse and nets ~zero SOC change.
     qd = 0.0
     if first_pulse is not None:
         for i in range(first_pulse, region_end):
-            if kinds[i] in ("discharge_pulse", "constant_discharge"):
+            if kinds[i] == "constant_discharge":
                 qd += abs(_block_ah(data, blocks[i]))
 
     capacity = qd if qd > 0 else qc
@@ -119,6 +122,22 @@ def detect_capacity(
         "qc": round(qc, 4),
         "capacity": round(capacity, 4) if capacity else None,
     }
+
+
+def save_capacity_csv(
+    out_dir: Path,
+    stem: str,
+    qd: float | None,
+    qc: float | None,
+    capacity_used: float | None,
+) -> Path:
+    """Write the detected Qd/Qc and the capacity used for SOC to a CSV."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{stem}_capacity.csv"
+    pd.DataFrame(
+        [{"qd_ah": qd, "qc_ah": qc, "capacity_used_ah": capacity_used}]
+    ).to_csv(path, index=False)
+    return path
 
 
 def extract_pulses(
@@ -252,13 +271,16 @@ def process_file(
         rc_order=rc_order, algorithm=algorithm, capacity=capacity,
     )
 
+    capacity_used = round(float(capacity), 4)
+    save_capacity_csv(out_dir, stem, cap.get("qd"), cap.get("qc"), capacity_used)
+
     return {
         "name": xlsx_path.name,
         "stem": stem,
         "xlsx_path": str(xlsx_path),
         "out_dir": str(out_dir),
         "capacity_detected": cap,
-        "capacity_used": round(float(capacity), 4),
+        "capacity_used": capacity_used,
         "extract": extract,
         "fit": fit,
     }

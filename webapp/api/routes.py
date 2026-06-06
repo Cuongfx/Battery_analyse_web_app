@@ -597,21 +597,31 @@ async def ecm_fit(body: EcmFitBody) -> dict[str, Any]:
                 path, pulse_csv, body.sheet, body.pulse_max_seconds,
                 save_plot=out_dir / f"{stem}_pulses.png",
             )
-        capacity = body.capacity
-        if not capacity:
-            cap = ecm_runner.detect_capacity(path, body.sheet, body.pulse_max_seconds)
-            capacity = cap.get("capacity")
-        return ecm_runner.fit_pulses(
+        # Always detect Qd/Qc so they can be reported; a user value overrides
+        # only the capacity used for SOC.
+        cap = ecm_runner.detect_capacity(path, body.sheet, body.pulse_max_seconds)
+        capacity = body.capacity or cap.get("capacity")
+        capacity_used = round(float(capacity), 4) if capacity else None
+        ecm_runner.save_capacity_csv(
+            out_dir, stem, cap.get("qd"), cap.get("qc"), capacity_used
+        )
+        fit = ecm_runner.fit_pulses(
             pulse_csv, out_dir, stem,
             rc_order=body.rc_order, algorithm=body.algorithm, capacity=capacity,
         )
+        return {"capacity_detected": cap, "capacity_used": capacity_used, "fit": fit}
 
     try:
-        fit = await asyncio.to_thread(_work)
+        result = await asyncio.to_thread(_work)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Fit failed: {exc}") from exc
 
-    return {"name": path.name, "stem": stem, "out_dir": str(out_dir), "fit": fit}
+    return {
+        "name": path.name, "stem": stem, "out_dir": str(out_dir),
+        "capacity_detected": result["capacity_detected"],
+        "capacity_used": result["capacity_used"],
+        "fit": result["fit"],
+    }
 
 
 @app.get("/api/ecm/batch-stream")

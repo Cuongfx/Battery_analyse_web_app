@@ -211,7 +211,10 @@
         algorithm: state.algorithm,
         capacity: currentCapacity(),
       });
-      renderResults(data.fit, { name: data.name, out_dir: data.out_dir });
+      const cap = data.capacity_detected || {};
+      renderResults(data.fit, {
+        name: data.name, out_dir: data.out_dir, qd: cap.qd, qc: cap.qc,
+      });
       setStep(4);
     } catch (err) {
       showErr(String(err.message || err));
@@ -267,9 +270,13 @@
       `<h3>${meta.name}</h3>` +
       `<p class="muted">${fit.rc_order}RC · ${fit.algorithm} · capacity ${fmt(fit.capacity)} Ah</p>`;
 
+    const capMetrics =
+      (meta.qd != null ? `<div class="ecm-metric"><span class="ecm-metric-label">Qd (HPPC)</span><span class="ecm-metric-val">${fmt(meta.qd)} Ah</span></div>` : "") +
+      (meta.qc != null ? `<div class="ecm-metric"><span class="ecm-metric-label">Qc (CCCV)</span><span class="ecm-metric-val">${fmt(meta.qc)} Ah</span></div>` : "");
     eg("ecmMetrics").innerHTML = `
       <div class="ecm-metric"><span class="ecm-metric-label">MAE</span><span class="ecm-metric-val">${fmt(fit.mae)} V</span></div>
       <div class="ecm-metric"><span class="ecm-metric-label">RMSE</span><span class="ecm-metric-val">${fmt(fit.rmse)} V</span></div>
+      ${capMetrics}
     `;
 
     eg("ecmResultTable").innerHTML = renderTable(fit.columns, fit.rows);
@@ -295,7 +302,10 @@
       .join("");
 
     if (msg.preview) {
-      renderResults(msg.preview.fit, { name: msg.preview.name, out_dir: null });
+      const cap = msg.preview.capacity_detected || {};
+      renderResults(msg.preview.fit, {
+        name: msg.preview.name, out_dir: null, qd: cap.qd, qc: cap.qc,
+      });
       eg("ecmResultsHead").innerHTML =
         `<h3>Batch complete — previewing a random file: ${msg.preview.name}</h3>` +
         `<p class="muted">${msg.ok_count} ok · ${msg.error_count} failed · ${msg.total} files</p>`;
