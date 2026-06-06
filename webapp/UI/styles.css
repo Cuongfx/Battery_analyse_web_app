@@ -1771,9 +1771,45 @@ body[data-mode="ecm"] .sidebar { display: none; }
 .ecm-result-table th { background: var(--surface-soft); color: var(--muted); font-weight: 700; }
 .ecm-result-table td:first-child, .ecm-result-table th:first-child { text-align: left; }
 
-.ecm-result-plots { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; margin-top: 0.6rem; }
-.ecm-result-plots figure { margin: 0; }
-.ecm-result-plots figcaption { font-size: 0.82rem; color: var(--muted); margin-bottom: 0.3rem; font-weight: 600; }
+/* One plot per row (Measured-vs-fitted, then R/C/tau, then OCV). */
+.ecm-result-plots { display: flex; flex-direction: column; gap: 1.2rem; margin-top: 0.6rem; }
+.ecm-figure { margin: 0; }
+.ecm-figure-head { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; margin-bottom: 0.35rem; }
+.ecm-figure-head figcaption { font-size: 0.9rem; color: var(--text); font-weight: 600; }
+.ecm-figure-actions { display: flex; gap: 0.4rem; flex: none; }
+.ecm-dl {
+  display: inline-block; text-decoration: none;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 0.2rem 0.55rem; font-size: 0.78rem; font-weight: 600; cursor: pointer;
+}
+.ecm-dl:hover { background: var(--panel-soft); border-color: var(--accent); }
+.ecm-plot-img { cursor: zoom-in; }
+
+/* Full-screen enlarge modal */
+.ecm-lightbox {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.8); padding: 2rem; cursor: zoom-out;
+}
+.ecm-lightbox[hidden] { display: none; }
+.ecm-lightbox img {
+  max-width: 95vw; max-height: 92vh; background: #fff;
+  border-radius: 8px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+/* Always-visible scrollbars on scrollable tables/lists. */
+.ecm-result-table, .folder-table-wrap, .browser { scrollbar-width: thin; }
+.ecm-result-table { overflow: auto; }
+.ecm-result-table::-webkit-scrollbar,
+.folder-table-wrap::-webkit-scrollbar,
+.browser::-webkit-scrollbar { width: 10px; height: 10px; -webkit-appearance: none; }
+.ecm-result-table::-webkit-scrollbar-thumb,
+.folder-table-wrap::-webkit-scrollbar-thumb,
+.browser::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 5px; }
+.ecm-result-table::-webkit-scrollbar-track,
+.folder-table-wrap::-webkit-scrollbar-track,
+.browser::-webkit-scrollbar-track { background: var(--panel-soft); }
 
 .ecm-batch-summary { margin-top: 1.2rem; border-top: 1px solid var(--border); padding-top: 1rem; }
 .ecm-batch-summary h4 { margin: 0 0 0.5rem; color: var(--text); }
@@ -1895,4 +1931,4 @@ body[data-mode="data"] #ecmPanel { display: none; }
 .ecm-ocv figure { margin: 0; }
 .ecm-ocv-table { margin-top: 0.6rem; }
 .ecm-ocv-table > summary { cursor: pointer; font-weight: 600; color: var(--text); padding: 0.3rem 0; }
-.ecm-ocv-table .ecm-result-table { max-height: 280px; overflow: auto; }
+.ecm-ocv-table .ecm-result-table { max-height: 280px; overflow-y: scroll; }

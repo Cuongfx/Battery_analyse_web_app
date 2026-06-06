@@ -726,16 +726,31 @@ async def ecm_batch_stream(
     )
 
 
+_ECM_MEDIA_TYPES = {
+    ".png": "image/png",
+    ".svg": "image/svg+xml",
+    ".pdf": "application/pdf",
+}
+
+
 @app.get("/api/ecm/image")
-def ecm_image(path: str) -> FileResponse:
+def ecm_image(path: str, download: int = 0) -> FileResponse:
+    """Serve a generated ECM plot (png/svg/pdf), jailed under OUTPUT_ROOT.
+
+    ``download=1`` returns the file as an attachment (for the SVG/PDF buttons).
+    """
     p = Path(path).resolve()
     try:
         p.relative_to(ecm_runner.OUTPUT_ROOT.resolve())
     except ValueError:
         raise HTTPException(status_code=403, detail="Image path outside output folder")
+    media_type = _ECM_MEDIA_TYPES.get(p.suffix.lower())
+    if media_type is None:
+        raise HTTPException(status_code=400, detail="Unsupported file type")
     if not p.is_file():
-        raise HTTPException(status_code=404, detail="Image not found")
-    return FileResponse(str(p), media_type="image/png")
+        raise HTTPException(status_code=404, detail="File not found")
+    filename = p.name if download else None
+    return FileResponse(str(p), media_type=media_type, filename=filename)
 
 
 if STATIC_DIR.is_dir():

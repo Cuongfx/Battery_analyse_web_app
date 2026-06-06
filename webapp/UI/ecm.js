@@ -40,6 +40,47 @@
     return "/api/ecm/image?path=" + encodeURIComponent(absPath);
   }
 
+  function dlUrl(absPath) {
+    return "/api/ecm/image?path=" + encodeURIComponent(absPath) + "&download=1";
+  }
+
+  // A plot figure: caption + SVG/PDF download buttons + the (double-click-to-zoom) image.
+  function plotFigure(caption, png, svg, pdf, alt) {
+    if (!png) return "";
+    const dl = [];
+    if (svg) dl.push(`<a class="ecm-dl" href="${dlUrl(svg)}" download>SVG</a>`);
+    if (pdf) dl.push(`<a class="ecm-dl" href="${dlUrl(pdf)}" download>PDF</a>`);
+    return `<figure class="ecm-figure">
+      <div class="ecm-figure-head">
+        <figcaption>${caption}</figcaption>
+        <div class="ecm-figure-actions">${dl.join("")}</div>
+      </div>
+      <img class="ecm-plot-img" src="${imgUrl(png)}" alt="${alt || caption}" title="Double-click to enlarge" />
+    </figure>`;
+  }
+
+  // Double-click any ECM plot image -> full-screen modal; click backdrop or Esc to close.
+  let lightboxWired = false;
+  function wireLightbox() {
+    if (lightboxWired) return;
+    lightboxWired = true;
+    const box = eg("ecmLightbox");
+    const img = box ? box.querySelector("img") : null;
+    if (!box || !img) return;
+    const close = () => { box.hidden = true; img.src = ""; };
+
+    eg("ecmPanel").addEventListener("dblclick", (e) => {
+      const target = e.target.closest(".ecm-plot-img");
+      if (!target) return;
+      img.src = target.src;
+      box.hidden = false;
+    });
+    box.addEventListener("click", close);
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !box.hidden) close();
+    });
+  }
+
   function showErr(msg) {
     const el = eg("ecmErr");
     if (!msg) {
@@ -210,7 +251,7 @@
           <span>V ${fmt(x.v_min)}–${fmt(x.v_max)} V</span>
           <span>I ${fmt(x.i_min)}–${fmt(x.i_max)} A</span>
         </div>
-        ${x.pulse_png ? `<img class="ecm-plot-img" src="${imgUrl(x.pulse_png)}" alt="Extracted HPPC pulses" />` : ""}
+        ${plotFigure("Extracted HPPC pulses", x.pulse_png, x.pulse_svg, x.pulse_pdf, "Extracted HPPC pulses")}
         <p class="ecm-saved-note">Pulse data saved to <code>${data.out_dir}</code></p>
       `;
       eg("ecmStep2Next").disabled = false;
@@ -336,9 +377,10 @@
 
     eg("ecmResultTable").innerHTML = renderTable(fit.columns, fit.rows);
 
-    const plots = [];
-    if (fit.fit_png) plots.push(`<figure><figcaption>Measured vs fitted voltage</figcaption><img class="ecm-plot-img" src="${imgUrl(fit.fit_png)}" alt="HPPC fit" /></figure>`);
-    if (fit.params_png) plots.push(`<figure><figcaption>R / C / τ vs SOC</figcaption><img class="ecm-plot-img" src="${imgUrl(fit.params_png)}" alt="RC parameters" /></figure>`);
+    const plots = [
+      plotFigure("Measured vs fitted voltage", fit.fit_png, fit.fit_svg, fit.fit_pdf, "HPPC fit"),
+      plotFigure("R / C / τ vs SOC", fit.params_png, fit.params_svg, fit.params_pdf, "RC parameters"),
+    ];
     eg("ecmResultPlots").innerHTML = plots.join("");
 
     renderOcv(meta.ocv);
@@ -371,7 +413,7 @@
       : "";
     box.innerHTML = `
       <h4>Estimated OCV vs SOC</h4>
-      <figure><img class="ecm-plot-img" src="${imgUrl(ocv.png)}" alt="OCV vs SOC" /></figure>
+      ${plotFigure("Open-Circuit Voltage vs SOC", ocv.png, ocv.svg, ocv.pdf, "OCV vs SOC")}
       ${polyNote}
       ${tableRows ? `<details class="ecm-ocv-table"><summary>OCV table (tabulated grid)</summary>
         <div class="ecm-result-table"><table><thead><tr><th>SOC</th><th>OCV (V)</th></tr></thead><tbody>${tableRows}</tbody></table></div>
@@ -451,6 +493,8 @@
         updateModeUI();
       });
     });
+
+    wireLightbox();
 
     eg("ecmPick").addEventListener("click", pick);
     eg("ecmDetectCap").addEventListener("click", detectCapacity);

@@ -201,8 +201,11 @@ def build_ocv_outputs(
 
     ocv_csv = ecm_ocv.save_ocv_csv(out_dir, stem, table, poly) if anchors else None
     ocv_png = out_dir / f"{stem}_ocv.png"
+    ocv_svg = ocv_pdf = None
     if save_plot and anchors:
         ecm_ocv.plot_ocv(anchors, table, poly, ocv_png, show=False)
+        ocv_svg = str(ocv_png.with_suffix(".svg"))
+        ocv_pdf = str(ocv_png.with_suffix(".pdf"))
     else:
         ocv_png = None
 
@@ -214,6 +217,8 @@ def build_ocv_outputs(
         "endpoints": endpoints,
         "csv": str(ocv_csv) if ocv_csv else None,
         "png": str(ocv_png) if ocv_png else None,
+        "svg": ocv_svg,
+        "pdf": ocv_pdf,
     }
 
 
@@ -302,6 +307,15 @@ def build_summary(
     return summary
 
 
+def save_vector_formats(fig, png_path: Path) -> tuple[str, str]:
+    """Save a matplotlib figure as vector ``.svg`` and ``.pdf`` next to its PNG."""
+    svg_path = png_path.with_suffix(".svg")
+    pdf_path = png_path.with_suffix(".pdf")
+    fig.savefig(svg_path)
+    fig.savefig(pdf_path)
+    return str(svg_path), str(pdf_path)
+
+
 def extract_pulses(
     xlsx_path: Path,
     out_csv: Path,
@@ -309,7 +323,7 @@ def extract_pulses(
     pulse_max_seconds: float = DEFAULT_PULSE_MAX_SECONDS,
     save_plot: Path | None = None,
 ) -> dict[str, Any]:
-    """Extract the HPPC pulse section into ``out_csv`` (and an optional PNG)."""
+    """Extract the HPPC pulse section into ``out_csv`` (and an optional PNG/SVG/PDF)."""
     data = extract_hppc.load_records(xlsx_path, sheet)
     blocks = extract_hppc.build_blocks(data["command"])
     end_row, section_flags = extract_hppc.detect_hppc_region(
@@ -321,9 +335,11 @@ def extract_pulses(
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     extract_hppc.write_csv(out_csv, time, current, voltage, flags)
 
+    pulse_svg = pulse_pdf = None
     if save_plot is not None:
         save_plot.parent.mkdir(parents=True, exist_ok=True)
-        extract_hppc.plot_region(time, current, voltage, save_path=save_plot, show=False)
+        fig = extract_hppc.plot_region(time, current, voltage, save_path=save_plot, show=False)
+        pulse_svg, pulse_pdf = save_vector_formats(fig, save_plot)
         plt.close("all")
 
     return {
@@ -336,6 +352,8 @@ def extract_pulses(
         "i_max": float(current.max()) if len(current) else None,
         "pulse_csv": str(out_csv),
         "pulse_png": str(save_plot) if save_plot else None,
+        "pulse_svg": pulse_svg,
+        "pulse_pdf": pulse_pdf,
     }
 
 
@@ -392,8 +410,9 @@ def fit_pulses(
 
     fit_png = out_dir / f"{stem}_{rc_order}rc_fit.png"
     params_png = out_dir / f"{stem}_{rc_order}rc_params.png"
+    fit_svg = fit_pdf = params_svg = params_pdf = None
     if save_plots:
-        plot_hppc_fit(
+        fig_fit = plot_hppc_fit(
             hppc_data.time,
             hppc_data.voltage,
             vt,
@@ -402,7 +421,9 @@ def fit_pulses(
             save_path=fit_png,
             show=False,
         )
-        plot_rc_params(param_df, save_path=params_png, show=False)
+        fit_svg, fit_pdf = save_vector_formats(fig_fit, fit_png)
+        fig_par = plot_rc_params(param_df, save_path=params_png, show=False)
+        params_svg, params_pdf = save_vector_formats(fig_par, params_png)
         plt.close("all")
 
     # Round numeric table values for a tidy JSON payload.
@@ -421,7 +442,11 @@ def fit_pulses(
         "rows": rounded.to_dict(orient="records"),
         "params_csv": str(params_csv),
         "fit_png": str(fit_png) if save_plots else None,
+        "fit_svg": fit_svg,
+        "fit_pdf": fit_pdf,
         "params_png": str(params_png) if save_plots else None,
+        "params_svg": params_svg,
+        "params_pdf": params_pdf,
     }
 
 

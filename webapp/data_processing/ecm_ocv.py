@@ -203,6 +203,9 @@ def plot_ocv(
 
     save_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(save_path, dpi=150)
+    # Also write true-vector copies for download.
+    fig.savefig(save_path.with_suffix(".svg"))
+    fig.savefig(save_path.with_suffix(".pdf"))
     if show:
         plt.show()
     plt.close(fig)
