@@ -14,6 +14,7 @@ const state = {
   activeTempFilter: null,    // Set<number> | null  (null = no filter, all visible)
   currentRowsForFilter: [],  // rows for current folder, used when filter changes
   folderFallbackTemp: null,  // number | null — README ambient temp for files whose name has none (single-temp datasets only)
+  activeSubTab: "general",   // active Data-Analyse sub-tab
 };
 
 const LAST_ROOT_KEY = "batteryAi.lastRootDir";
@@ -292,24 +293,56 @@ function readCycleSpecFor(prefix) {
 
 function readCycleSpec() { return readCycleSpecFor(""); }
 
+// ---- top-level mode (chooser / data / ecm) ---------------------------- //
+const MODE_KEY = "app.mode";
+const SUBTAB_KEY = "app.subtab";
+const DATA_SUBTABS = ["general", "deep", "feature", "summary"];
+
+function setMode(mode) {
+  document.body.setAttribute("data-mode", mode);
+  $("homeBtn").hidden = mode === "chooser";
+
+  if (mode === "ecm") {
+    // Hide the Data-Analyse panels; show the ECM stepper.
+    DATA_SUBTABS.forEach((t) => {
+      $(panelId(t)).hidden = true;
+      $(panelId(t)).classList.remove("active");
+    });
+    $("ecmPanel").hidden = false;
+    $("ecmPanel").classList.add("active");
+    if (window.ecmInit) window.ecmInit();
+    localStorage.setItem(MODE_KEY, "ecm");
+  } else if (mode === "data") {
+    $("ecmPanel").hidden = true;
+    $("ecmPanel").classList.remove("active");
+    switchTab(state.activeSubTab || "general");
+    localStorage.setItem(MODE_KEY, "data");
+  } else {
+    // chooser: forget the remembered mode so a reload shows the chooser again.
+    localStorage.removeItem(MODE_KEY);
+  }
+
+  setTimeout(() => {
+    state.charts.forEach((chart) => Plotly.Plots.resize(chart));
+  }, 0);
+}
+
+function panelId(name) {
+  return { general: "generalPanel", deep: "deepPanel", feature: "featurePanel", summary: "summaryPanel" }[name];
+}
+
 function switchTab(name) {
+  if (!DATA_SUBTABS.includes(name)) name = "general";
+  state.activeSubTab = name;
+  localStorage.setItem(SUBTAB_KEY, name);
   document.querySelectorAll(".tab").forEach((tab) => {
     tab.classList.toggle("active", tab.dataset.tab === name);
   });
-  $("generalPanel").hidden = name !== "general";
-  $("deepPanel").hidden = name !== "deep";
-  $("featurePanel").hidden = name !== "feature";
-  $("summaryPanel").hidden = name !== "summary";
-  $("ecmPanel").hidden = name !== "ecm";
-  $("generalPanel").classList.toggle("active", name === "general");
-  $("deepPanel").classList.toggle("active", name === "deep");
-  $("featurePanel").classList.toggle("active", name === "feature");
-  $("summaryPanel").classList.toggle("active", name === "summary");
-  $("ecmPanel").classList.toggle("active", name === "ecm");
-  // The ECM tab is a self-contained workflow: hide the data-source sidebar.
-  document.body.classList.toggle("ecm-active", name === "ecm");
+  DATA_SUBTABS.forEach((t) => {
+    $(panelId(t)).hidden = t !== name;
+    $(panelId(t)).classList.toggle("active", t === name);
+  });
   if (name === "summary") renderDataSummary();
-  if (name === "ecm" && window.ecmInit) window.ecmInit();
   setTimeout(() => {
     state.charts.forEach((chart) => Plotly.Plots.resize(chart));
   }, 0);
@@ -2285,6 +2318,13 @@ switchFeatSubTab("single");
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => switchTab(tab.dataset.tab));
 });
+
+// Top-level mode: chooser cards + Home button.
+document.querySelectorAll("#chooserScreen .mode-card").forEach((card) => {
+  card.addEventListener("click", () => setMode(card.dataset.mode));
+});
+$("homeBtn").addEventListener("click", () => setMode("chooser"));
+
 window.addEventListener("resize", () => {
   state.charts.forEach((chart) => Plotly.Plots.resize(chart));
 });
@@ -2316,6 +2356,11 @@ $("importCacheInput").addEventListener("change", (e) => {
 
 initTheme();
 $("themeToggle").addEventListener("click", toggleTheme);
+
+// Restore the last mode + sub-tab (first-ever visit or after Home -> chooser).
+state.activeSubTab = localStorage.getItem(SUBTAB_KEY) || "general";
+const savedMode = localStorage.getItem(MODE_KEY);
+setMode(savedMode === "data" || savedMode === "ecm" ? savedMode : "chooser");
 
 loadPersistedFolderCache();
 
