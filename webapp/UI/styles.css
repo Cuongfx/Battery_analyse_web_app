@@ -1717,9 +1717,19 @@ body[data-mode="ecm"] .sidebar { display: none; }
 
 .ecm-stage { padding: 1.1rem 1.2rem; display: flex; flex-direction: column; gap: 1rem; }
 
-.ecm-mode-row { display: flex; gap: 1.2rem; flex-wrap: wrap; }
-.ecm-radio { display: flex; align-items: center; gap: 0.45rem; cursor: pointer; font-size: 0.92rem; color: var(--text); }
-.ecm-radio input { accent-color: var(--accent); }
+.ecm-mode-row { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+.ecm-radio { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.92rem; color: var(--text); }
+/* Radios must keep their natural size — the global `input{width:100%}` rule
+   would otherwise stretch them and wrap the labels. */
+.ecm-radio input[type="radio"] {
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  flex: none;
+  accent-color: var(--accent);
+}
+.ecm-radio span { white-space: nowrap; }
 
 .ecm-field-row { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; }
 .ecm-field-row .folder-path { flex: 1 1 240px; }
