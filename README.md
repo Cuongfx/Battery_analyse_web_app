@@ -1,9 +1,10 @@
 # Battery AI Analyzer
 
-> **Local battery-data workbench** with two workspaces: **Data Analyse** (explore
-> BatteryML cycle-life `.pkl` data) and **ECM** (fit an equivalent-circuit model and
-> estimate OCV curves from Neware `.xlsx` exports). Everything runs locally; your
-> data never leaves the machine.
+> **Local battery-data workbench** with three workspaces: **Data Analyse** (explore
+> BatteryML cycle-life `.pkl` data), **ECM** (fit an equivalent-circuit model and
+> estimate OCV curves from Neware `.xlsx` exports), and **Battery Life Prediction**
+> (predict remaining useful life with a CNN+GRU ML model). Everything runs locally;
+> your data never leaves the machine.
 >
 > *Design by CuongFX*
 
@@ -12,7 +13,7 @@
 ## Quick Start
 
 ```bash
-# install (web app + ECM engine)
+# install (web app + ECM engine + RUL predictor)
 pip install -r requirements.txt
 pip install -r equiv-circ-model/requirements.txt
 
@@ -25,7 +26,7 @@ PYTHONPATH=. python -m uvicorn webapp.main:app --host 127.0.0.1 --port 8765
 
 Open **http://localhost:8765**. **Requirements:** Python 3.11+ (tested on 3.12);
 `fastapi`, `uvicorn`, `pydantic`, `plotly`, `numpy`, `scipy`, `pandas`,
-`matplotlib`, `openpyxl`.
+`matplotlib`, `openpyxl`, `torch>=2.0`, `scikit-learn>=1.3`.
 
 ---
 
@@ -40,6 +41,7 @@ remembers your last workspace across reloads.
 |---|---|
 | **📊 Data Analyse** | Inspect cells, plot dQ/dV & dV/dQ, degradation features, dataset summary (BatteryML `.pkl`). |
 | **🔋 ECM** | Fit 1RC/2RC R·C·τ per SOC from HPPC, and estimate discharge/charge OCV (Neware `.xlsx`). |
+| **⏳ Battery Life Prediction** | Predict remaining useful life (RUL) class with a CNN+GRU ML model; single file or folder batch. |
 
 ---
 
@@ -177,6 +179,84 @@ All results are written under `equiv-circ-model/Equivalent-Circuit/<file>/`:
 
 ---
 
+# Workspace 3 — Battery Life Prediction (RUL)
+
+A lightweight ML tool that predicts where a lithium-ion cell sits in its remaining
+useful life — expressed as one of **5 RUL classes** — using only early cycling data.
+The workspace has two subtabs you can switch between freely:
+**Model Explanation** (default) and **Select data & model** (prediction tool).
+
+## Subtab 1 — Model Explanation
+
+Explains the model architecture and the five RUL classes. Shown by default when you
+open the workspace.
+
+![Model Explanation subtab](docs/screenshots/14_rul_model_explanation.png)
+
+**Model Architecture** — a dual-branch CNN + GRU classifier:
+
+- **ΔQ/dV branch** — 1 000-bin discharge difference curves pass through 3 × Conv-BN-ELU blocks, adaptive pooling → `16 × 12`.
+- **12-feature summary branch** — statistics (log-variance, log-range, etc.) pass through 2 dense layers → `16 × 32`.
+- Both branches are fused and fed into a **2-layer bidirectional GRU** → dense head → softmax over **5 classes**.
+- Trained with CMA-ES optimisation; achieves **83.6 % (full history)** / **85.8 % (adjacent pairs)** accuracy on held-out BatteryLife datasets.
+
+**5 RUL Classes:**
+
+| Class | Label | RUL range |
+|---|---|---|
+| 0 | Early Life | RUL > 400 cycles |
+| 1 | Mid-early Life | RUL 300 – 400 |
+| 2 | Mid Life | RUL 200 – 300 |
+| 3 | Late Life | RUL 100 – 200 |
+| 4 | Near-EOL | RUL ≤ 100 cycles |
+
+## Subtab 2 — Select data & model (Prediction Tool)
+
+A single-page tool for running predictions on one file or an entire folder.
+
+![Select data & model subtab](docs/screenshots/15_rul_select_data.png)
+
+**Inputs:**
+
+| Field | Description |
+|---|---|
+| **Input mode** | *Single cell file* (`.pkl` or `.npz`) or *Folder* (recursive batch) |
+| **Choose file / folder** | BatteryML `.pkl` (features extracted on the fly) or pre-extracted `.npz` |
+| **Choose model checkpoint folder** | Folder containing `best_clf*.pt`, `dq_scaler*.pkl`, `summary_scaler*.pkl` |
+| **History mode** | *Full cycle history* (first 8 early-life + 8 recent) — best accuracy; or *Recent cycles only* (last 16) — useful when you only have recent data |
+| **Query cycle** | The cycle index at which to predict (leave blank for latest available) |
+
+> **Recent-only mode** appends a warning that the prediction may not be 100% correct,
+> because the model was trained expecting early-life context.
+
+**Prediction results — single file:**
+
+![RUL prediction result — query class probabilities](docs/screenshots/16_rul_prediction_result.png)
+
+- **Metric cards**: predicted class, confidence %, query cycle, true class (if known).
+- **Prediction plot**: horizontal bar chart showing each class probability; the
+  predicted bar is coloured, the true class is outlined with a "✓ true" label.
+- **Class probability table**.
+- **Life trajectory** (full-history mode only): 2-panel plot — predicted class vs true class over the cell's full life, plus softmax probability curves.
+
+![RUL life trajectory over all cycles](docs/screenshots/17_rul_trajectory.png)
+
+**Folder batch mode** streams results via SSE — a progress bar and per-file summary table appear as each file completes, with a randomly sampled preview plot at the end.
+
+### Outputs
+
+All results are written under `result/RUL/<file>/`:
+
+```
+result/RUL/<file>/
+├── <file>_rul_query.png / .svg / .pdf    # class-probability bar chart
+├── <file>_rul_query.csv                  # probabilities + metadata
+├── <file>_rul_trajectory.png / .svg / .pdf  # life trajectory (full-history mode)
+└── <file>_rul_trajectory.csv            # per-cycle predicted class + probabilities
+```
+
+---
+
 ## Expected Inputs
 
 **Data Analyse** — a root folder of BatteryML subfolders:
@@ -192,20 +272,40 @@ Root folder/                 ← select with "Choose folder"
 an HPPC sweep followed by a full CCCV charge. **OCV**: a slow step-discharge sweep
 plus a low-rate charge.
 
+**Battery Life Prediction** — a BatteryML `.pkl` (raw cycling data, features extracted
+on the fly) or a pre-extracted `.npz` (arrays `dq_all`, `summary_all`, `cycle_index`,
+etc.). A checkpoint folder with at least `best_clf*.pt`, `dq_scaler*.pkl`, and
+`summary_scaler*.pkl` (glob-matched, so filenames can vary across training runs).
+
 ---
 
 ## Web App Code Structure
 
 ```
 webapp/
-├── UI/                  ← HTML/CSS/JS (app.js = Data Analyse, ecm.js = HPPC, ocv.js = OCV)
-├── api/                 ← API routes and request models
-├── data_processing/     ← BatteryML loading, cache, sessions, paths;
-│                          ecm_runner + ecm_ocv + ecm_zero_soc (HPPC) · ocv_runner (OCV test)
-├── plot/                ← Plotly chart builders
+├── UI/
+│   ├── index.html       ← layout + all workspace panels
+│   ├── app.js           ← workspace switching, Data Analyse logic
+│   ├── ecm.js           ← HPPC workspace JS
+│   ├── ocv.js           ← OCV workspace JS
+│   ├── rul.js           ← Battery Life Prediction workspace JS
+│   ├── styles.css       ← shared styles
+│   └── assets/          ← static images (architecture diagram, RUL classes diagram)
+├── api/                 ← API routes (routes.py) and request models (models.py)
+├── data_processing/
+│   ├── ecm_runner.py / ecm_ocv.py / ecm_zero_soc.py   ← HPPC pipeline
+│   ├── ocv_runner.py    ← OCV test pipeline
+│   ├── rul_model.py     ← vendored BatteryRULClassifier (CNN+GRU, inference only)
+│   ├── rul_features.py  ← feature extraction from .pkl / .npz for RUL inference
+│   ├── rul_runner.py    ← RUL prediction orchestration + plot generation
+│   ├── inspection.py    ← field-alias resolution (dataset-agnostic)
+│   ├── cache.py / sessions.py / paths.py ← caching, session state, path jails
+│   └── ...
+├── plot/                ← Plotly chart builders (Data Analyse)
 ├── config.py            ← shared paths and constants
 └── main.py              ← app entrypoint
 equiv-circ-model/        ← standalone ECM engine (HPPC extraction + curve fitting)
+result/RUL/              ← generated RUL outputs (gitignored)
 ```
 
 ---
@@ -219,6 +319,9 @@ equiv-circ-model/        ← standalone ECM engine (HPPC extraction + curve fitt
 | Stale UI after an update | Hard-refresh: `Ctrl+Shift+R` (Win/Linux) or `Cmd+Shift+R` (Mac). |
 | ECM/OCV: "Sheet not found" | Set the correct worksheet name (default `Record List1`). |
 | ECM: odd capacity / SOC | Enter the cell capacity in **Capacity for SOC**, or check the file is a full run. |
+| RUL: "No checkpoint found" | Ensure the folder contains `best_clf*.pt`, `dq_scaler*.pkl`, `summary_scaler*.pkl`. |
+| RUL: `torch` not found | Run `pip install torch` (CPU build is fine; GPU not required). |
+| RUL: prediction plot looks stale | Each prediction auto-busts the browser cache — if unchanged, confirm the query cycle actually changed and click **Predict RUL** again (not Reset). |
 | "Connection error" | The server may have restarted — refresh the page. |
 
 ---
