@@ -93,7 +93,7 @@ function toggleTheme() {
   applyTheme(next);
 }
 
-// ── Data summary tab (source: Table 1, battery_data.pdf) ────────────────────
+// ── Data summary tab (source: Table 1, Data_Info/battery_data.pdf) ──────────
 const CHEM_FAMILIES = {
   LFP:        { label: "LFP",            cls: "chem-LFP" },
   "NMC/NCA":  { label: "NMC / NCA",      cls: "chem-NMCNCA" },

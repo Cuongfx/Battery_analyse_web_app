@@ -1784,6 +1784,26 @@ body[data-mode="ecm"] .sidebar { display: none; }
 .rul-centered .ecm-plot-img { display: block; width: 100%; }
 #rulPlots .ecm-figure-head, #rulTrajPlot .ecm-figure-head { justify-content: space-between; }
 #rulMetrics { justify-content: center; }
+
+/* RUL — Model Explanation subtab */
+.rul-explain-card {
+  border: 1px solid var(--border); border-radius: 12px; background: var(--panel);
+  padding: 1.1rem 1.3rem; margin: 0 auto 1.2rem; max-width: 980px;
+}
+.rul-explain-card h3 { margin: 0 0 0.5rem; color: var(--text); font-size: 1.15rem; }
+.rul-explain-list { margin: 0.4rem 0 0.9rem; padding-left: 1.1rem; color: var(--text); line-height: 1.55; }
+.rul-explain-list li { margin-bottom: 0.35rem; }
+.rul-class-list { list-style: none; padding-left: 0; }
+.rul-class-list li { display: flex; align-items: center; gap: 0.55rem; }
+.rul-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; display: inline-block; }
+.rul-explain-figure { margin: 0.6rem 0 0; }
+.rul-explain-figure img {
+  display: block; width: 100%; max-width: 920px; margin: 0 auto;
+  border: 1px solid var(--border); border-radius: 8px; background: #fff; padding: 0.5rem;
+}
+.rul-explain-figure figcaption {
+  margin-top: 0.45rem; text-align: center; color: var(--muted); font-size: 0.85rem;
+}
 .ecm-primary {
   background: var(--accent); color: #fff; border: none; border-radius: 8px;
   padding: 0.55rem 1.1rem; font-weight: 600; cursor: pointer;

@@ -68,15 +68,13 @@
     return data;
   }
 
-  // ---- stepper ----------------------------------------------------------- //
-  function setStep(n) {
-    document.querySelectorAll("#rulStepper .ecm-step").forEach((li) => {
-      const s = Number(li.dataset.step);
-      li.classList.toggle("active", s === n);
-      li.classList.toggle("done", s < n);
+  // ---- subtabs (freely switchable: Model Explanation / the tool) --------- //
+  function showSub(which) {
+    document.querySelectorAll("#rulSubtabs .ecm-subtab").forEach((b) => {
+      b.classList.toggle("active", b.dataset.rulsub === which);
     });
-    eg("rulStage1").hidden = n !== 1;
-    eg("rulStage2").hidden = n !== 2;
+    eg("rulExplainSub").hidden = which !== "explain";
+    eg("rulToolSub").hidden = which !== "tool";
     showErr("");
   }
 
@@ -90,7 +88,7 @@
     state.path = "";
     state.inspected = null;
     updateHistoryUI();
-    refreshNext();
+    refreshPredict();
   }
 
   function updateHistoryUI() {
@@ -103,11 +101,11 @@
       : "Recent-only mode feeds the latest 16 cycles directly to predict the future. A reminder will be shown that the prediction may not be 100% correct.";
   }
 
-  function refreshNext() {
+  function refreshPredict() {
     let ok = !!state.ckptDir;
     if (state.mode === "single") ok = ok && !!state.path && !!(state.inspected && state.inspected.enough_cycles);
     else ok = ok && state.fileCount > 0;
-    eg("rulStep1Next").disabled = !ok;
+    eg("rulRunPredict").disabled = !ok;
   }
 
   async function pick() {
@@ -126,7 +124,7 @@
         info.hidden = false;
         info.innerHTML = `<b>${scan.count}</b> cell file${scan.count === 1 ? "" : "s"} (<code>.pkl</code>/<code>.npz</code>) found.`;
       }
-      refreshNext();
+      refreshPredict();
     } catch (err) {
       showErr(String(err.message || err));
     }
@@ -149,7 +147,7 @@
         note.textContent = "Not a valid checkpoint folder (need best_clf*.pt + dq_scaler*.pkl + summary_scaler*.pkl).";
         note.classList.add("rul-incorrect");
       }
-      refreshNext();
+      refreshPredict();
     } catch (err) {
       showErr(String(err.message || err));
     }
@@ -385,7 +383,11 @@
 
     updateModeUI();
     wireLightbox();
+    showSub("explain");  // default to Model Explanation
 
+    document.querySelectorAll("#rulSubtabs .ecm-subtab").forEach((b) => {
+      b.addEventListener("click", () => showSub(b.dataset.rulsub));
+    });
     document.querySelectorAll('input[name="rulFileMode"]').forEach((r) => {
       r.addEventListener("change", () => {
         state.mode = document.querySelector('input[name="rulFileMode"]:checked').value;
@@ -393,13 +395,12 @@
       });
     });
     document.querySelectorAll('input[name="rulHistory"]').forEach((r) => {
-      r.addEventListener("change", () => { updateHistoryUI(); refreshNext(); });
+      r.addEventListener("change", () => { updateHistoryUI(); refreshPredict(); });
     });
 
     eg("rulPick").addEventListener("click", pick);
     eg("rulPickCkpt").addEventListener("click", pickCkpt);
-    eg("rulStep1Next").addEventListener("click", () => setStep(2));
     eg("rulRunPredict").addEventListener("click", runPredict);
-    eg("rulStartOver").addEventListener("click", () => { clearResults(); setStep(1); });
+    eg("rulStartOver").addEventListener("click", clearResults);
   };
 })();
