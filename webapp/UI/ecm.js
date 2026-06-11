@@ -13,6 +13,7 @@
     detected: null, // {qd, qc, capacity}
     rcOrder: 1,
     algorithm: "curve_fit",
+    zeroSocMethod: "log_poly2",
     extract: null, // single-file extract result
   };
 
@@ -269,6 +270,7 @@
     showErr("");
     state.rcOrder = Number(document.querySelector('input[name="ecmRcOrder"]:checked').value);
     state.algorithm = eg("ecmAlgo").value;
+    state.zeroSocMethod = eg("ecmZeroSoc").value;
 
     if (state.mode === "folder") {
       runBatch();
@@ -285,6 +287,7 @@
         algorithm: state.algorithm,
         capacity: currentCapacity(),
         ocv_mode: eg("ecmOcvMode").value,
+        zero_soc_method: state.zeroSocMethod,
         ...currentBounds(),
       });
       const cap = data.capacity_detected || {};
@@ -309,6 +312,7 @@
       sheet: eg("ecmSheet").value.trim() || "Record List1",
       pulse_max_seconds: "60",
       ocv_mode: eg("ecmOcvMode").value,
+      zero_soc_method: state.zeroSocMethod,
     });
     const cap = currentCapacity();
     if (cap != null && !Number.isNaN(cap)) params.set("capacity", String(cap));
@@ -476,9 +480,30 @@
       sel.innerHTML = data.algorithms
         .map((a) => `<option value="${a}"${a === "curve_fit" ? " selected" : ""}>${a}</option>`)
         .join("");
+
+      const zsel = eg("ecmZeroSoc");
+      const methods = data.extrapolation_methods || [];
+      zsel.innerHTML =
+        methods
+          .map((m) => `<option value="${m.value}"${m.value === state.zeroSocMethod ? " selected" : ""}>${m.label}</option>`)
+          .join("") + `<option value="none">None (no 0% SOC row)</option>`;
     } catch (err) {
       /* leave empty; surfaced on fit */
     }
+  }
+
+  // ---- HPPC / OCV subtab switching --------------------------------------- //
+  function wireSubtabs() {
+    const buttons = document.querySelectorAll(".ecm-subtab");
+    buttons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const sub = btn.dataset.ecmsub;
+        buttons.forEach((b) => b.classList.toggle("active", b === btn));
+        eg("ecmHppcSub").hidden = sub !== "hppc";
+        eg("ecmOcvSub").hidden = sub !== "ocv";
+        if (sub === "ocv" && window.ocvInit) window.ocvInit();
+      });
+    });
   }
 
   window.ecmInit = function ecmInit() {
@@ -487,6 +512,7 @@
 
     loadAlgorithms();
     updateModeUI();
+    wireSubtabs();
 
     document.querySelectorAll('input[name="ecmMode"]').forEach((r) => {
       r.addEventListener("change", () => {

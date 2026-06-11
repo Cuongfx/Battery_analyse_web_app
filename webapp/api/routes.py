@@ -24,6 +24,7 @@ from webapp.api.models import (
     FolderLogavgBody,
     FolderPathBody,
     LoadPathBody,
+    OcvComputeBody,
     PlotBody,
     ScreenshotBody,
 )
@@ -508,11 +509,16 @@ async def save_screenshot(body: ScreenshotBody) -> dict[str, Any]:
 # ECM (Equivalent Circuit Model) tab
 # --------------------------------------------------------------------------- #
 from webapp.data_processing import ecm_runner  # noqa: E402
+from webapp.data_processing import ocv_runner  # noqa: E402
 
 
 @app.get("/api/ecm/algorithms")
 def ecm_algorithms() -> dict[str, Any]:
-    return {"algorithms": list(ecm_runner.algorithms()), "default_sheet": ecm_runner.DEFAULT_SHEET}
+    return {
+        "algorithms": list(ecm_runner.algorithms()),
+        "default_sheet": ecm_runner.DEFAULT_SHEET,
+        "extrapolation_methods": ecm_runner.extrapolation_methods(),
+    }
 
 
 @app.post("/api/ecm/pick")
@@ -617,8 +623,10 @@ async def ecm_fit(body: EcmFitBody) -> dict[str, Any]:
         fit = ecm_runner.fit_pulses(
             pulse_csv, out_dir, stem,
             rc_order=body.rc_order, algorithm=body.algorithm, capacity=capacity,
-            v_limits=v_limits,
+            v_limits=v_limits, zero_soc_method=body.zero_soc_method,
         )
+        if fit.get("zero_soc_warning"):
+            warnings = warnings + [fit["zero_soc_warning"]]
 
         ocv = ecm_runner.build_ocv_outputs(
             out_dir, stem, analysis["ocv_anchors"], body.ocv_mode, body.ocv_poly_degree
@@ -668,6 +676,7 @@ async def ecm_batch_stream(
     nominal_capacity: float | None = None,
     ocv_mode: str = "both",
     ocv_poly_degree: int = 8,
+    zero_soc_method: str = "log_poly2",
 ) -> StreamingResponse:
     folder = Path(dir.strip().strip('"\''))
     if not folder.is_dir():
@@ -694,7 +703,7 @@ async def ecm_batch_stream(
                     ecm_runner.process_file,
                     path, rc_order, algorithm, sheet, capacity, pulse_max_seconds,
                     v_max, v_min, i_chg_max, i_dch_max, nominal_capacity,
-                    ocv_mode, ocv_poly_degree,
+                    ocv_mode, ocv_poly_degree, zero_soc_method,
                 )
                 full_results.append(res)
                 results.append({
@@ -751,6 +760,97 @@ def ecm_image(path: str, download: int = 0) -> FileResponse:
         raise HTTPException(status_code=404, detail="File not found")
     filename = p.name if download else None
     return FileResponse(str(p), media_type=media_type, filename=filename)
+
+
+# --------------------------------------------------------------------------- #
+# OCV-test tab (separate pipeline; shares the file picker + image jail)
+# --------------------------------------------------------------------------- #
+@app.post("/api/ocv/detect-capacity")
+async def ocv_detect_capacity(body: EcmCapacityBody) -> dict[str, Any]:
+    path = Path(body.path.strip().strip('"\''))
+    if not path.is_file():
+        raise HTTPException(status_code=400, detail=f"File not found: {path}")
+    try:
+        return await asyncio.to_thread(ocv_runner.detect_capacity, path, body.sheet)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"OCV detection failed: {exc}") from exc
+
+
+@app.post("/api/ocv/compute")
+async def ocv_compute(body: OcvComputeBody) -> dict[str, Any]:
+    path = Path(body.path.strip().strip('"\''))
+    if not path.is_file():
+        raise HTTPException(status_code=400, detail=f"File not found: {path}")
+    try:
+        return await asyncio.to_thread(
+            ocv_runner.compute_ocv, path, body.sheet, body.capacity,
+            body.ocv_mode, body.ocv_poly_degree,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"OCV computation failed: {exc}") from exc
+
+
+@app.get("/api/ocv/batch-stream")
+async def ocv_batch_stream(
+    dir: str,
+    sheet: str = "Record List1",
+    capacity: float | None = None,
+    ocv_mode: str = "both",
+    ocv_poly_degree: int = 8,
+) -> StreamingResponse:
+    folder = Path(dir.strip().strip('"\''))
+    if not folder.is_dir():
+        raise HTTPException(status_code=400, detail=f"Not a folder: {folder}")
+
+    files = ecm_runner.find_xlsx_files(folder)
+
+    async def generate():
+        total = len(files)
+        if total == 0:
+            yield f"data: {json.dumps({'done': True, 'total': 0, 'results': [], 'errors': []})}\n\n"
+            return
+
+        results: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        full_results: list[dict[str, Any]] = []
+
+        for i, path in enumerate(files):
+            yield f"data: {json.dumps({'progress': round(i / total * 100), 'current': i + 1, 'total': total, 'file': path.name})}\n\n"
+            try:
+                res = await asyncio.to_thread(
+                    ocv_runner.compute_ocv, path, sheet, capacity, ocv_mode, ocv_poly_degree,
+                )
+                full_results.append(res)
+                ep = res.get("endpoints") or {}
+                results.append({
+                    "name": res["name"], "stem": res["stem"], "out_dir": res["out_dir"],
+                    "capacity_used": res["capacity_used"],
+                    "n_discharge_steps": res["n_discharge_steps"],
+                    "ocv_100_discharge": ep.get("ocv_100_discharge"),
+                    "ocv_0_discharge": ep.get("ocv_0_discharge"),
+                    "max_hysteresis_v": ep.get("max_hysteresis_v"),
+                    "warnings": res["warnings"],
+                })
+            except Exception as exc:
+                errors.append({"name": path.name, "error": str(exc)})
+
+        import random
+        preview = random.choice(full_results) if full_results else None
+
+        done = {
+            "done": True, "total": total,
+            "ok_count": len(results), "error_count": len(errors),
+            "results": results, "errors": errors,
+            "output_root": str(ocv_runner.OUTPUT_ROOT),
+            "preview": preview,
+        }
+        yield f"data: {json.dumps(done)}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 if STATIC_DIR.is_dir():

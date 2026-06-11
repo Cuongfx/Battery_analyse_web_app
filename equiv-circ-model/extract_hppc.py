@@ -318,6 +318,37 @@ def build_output(data, end_row, section_flags):
     return time, current, voltage, flags
 
 
+def build_full_output(data, section_flags):
+    """
+    Build whole-process output spanning the entire test (initial full charge ->
+    rest -> HPPC -> final rest -> recharge), so the captured CSV/plot show the
+    complete process rather than only the cropped HPPC window.
+
+    The HPPC section markers use the same layout as `build_output`, so per-SOC
+    pulse fitting is unchanged. The leading and trailing full-charge regions
+    carry no `S` markers: the loader (`CellHppcData`) keeps from the second
+    marker onward, so the leading charge is ignored automatically, and the fit
+    wrapper clips the trailing charge at the last marker.
+    """
+    flag_rows = sorted({flag for section in section_flags for flag in section})
+    # Drop the final constant-discharge marker for the same count-alignment
+    # reason as build_output (last SOC section has a pulse but no fitted discharge).
+    flag_rows = flag_rows[:-1]
+
+    n = len(data["time_s"])
+    time = data["time_s"][:n] - data["time_s"][0]
+    current = data["current"][:n]
+    voltage = data["voltage"][:n]
+
+    flags = np.full(n, "", dtype=object)
+    flags[0] = "S"  # leading global marker (dropped by the loader)
+    for flag_row in flag_rows:
+        if 0 <= flag_row < n:
+            flags[flag_row] = "S"
+
+    return time, current, voltage, flags
+
+
 def write_csv(path, time, current, voltage, flags):
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as fh:
@@ -326,13 +357,13 @@ def write_csv(path, time, current, voltage, flags):
             fh.write(f"{t:.3f},{i:.6f},{v:.6f},{flag}\n")
 
 
-def plot_region(time, current, voltage, save_path=None, show=True):
+def plot_region(time, current, voltage, save_path=None, show=True, title="Extracted HPPC pulses"):
     import matplotlib.pyplot as plt
 
     fig, (ax_i, ax_v) = plt.subplots(2, 1, figsize=(10, 6), sharex=True, tight_layout=True)
     ax_i.plot(time, current, color="C0")
     ax_i.set_ylabel("Current [A]")
-    ax_i.set_title("Extracted HPPC pulses")
+    ax_i.set_title(title)
     ax_i.grid(True, color="0.9")
 
     ax_v.plot(time, voltage, color="C3")
