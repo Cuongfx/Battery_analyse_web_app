@@ -147,10 +147,14 @@
   async function pick() {
     showErr("");
     try {
-      const { path } = await postJSON("/api/ecm/pick", {
-        kind: state.mode === "folder" ? "folder" : "xlsx",
+      const folder = state.mode === "folder";
+      const path = await window.openPicker({
+        title: folder ? "Select folder of .xlsx files" : "Select .xlsx file",
+        select: folder ? "folder" : "file",
+        kind: folder ? "folder" : "xlsx",
+        native: { url: "/api/ecm/pick", body: { kind: folder ? "folder" : "xlsx" } },
       });
-      if (!path) return; // dialog cancelled
+      if (!path) return; // picker cancelled
       state.path = path;
       eg("ecmPath").textContent = path;
       eg("ecmStep1Next").disabled = false;

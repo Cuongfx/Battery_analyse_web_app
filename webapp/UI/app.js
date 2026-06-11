@@ -93,7 +93,7 @@ function toggleTheme() {
   applyTheme(next);
 }
 
-// ── Data summary tab (source: Table 1, battery_data.pdf) ────────────────────
+// ── Data summary tab (source: Table 1, Data_Info/battery_data.pdf) ──────────
 const CHEM_FAMILIES = {
   LFP:        { label: "LFP",            cls: "chem-LFP" },
   "NMC/NCA":  { label: "NMC / NCA",      cls: "chem-NMCNCA" },
@@ -310,11 +310,26 @@ function setMode(mode) {
     });
     $("ecmPanel").hidden = false;
     $("ecmPanel").classList.add("active");
+    $("rulPanel").hidden = true;
+    $("rulPanel").classList.remove("active");
     if (window.ecmInit) window.ecmInit();
     localStorage.setItem(MODE_KEY, "ecm");
+  } else if (mode === "rul") {
+    DATA_SUBTABS.forEach((t) => {
+      $(panelId(t)).hidden = true;
+      $(panelId(t)).classList.remove("active");
+    });
+    $("ecmPanel").hidden = true;
+    $("ecmPanel").classList.remove("active");
+    $("rulPanel").hidden = false;
+    $("rulPanel").classList.add("active");
+    if (window.rulInit) window.rulInit();
+    localStorage.setItem(MODE_KEY, "rul");
   } else if (mode === "data") {
     $("ecmPanel").hidden = true;
     $("ecmPanel").classList.remove("active");
+    $("rulPanel").hidden = true;
+    $("rulPanel").classList.remove("active");
     switchTab(state.activeSubTab || "general");
     localStorage.setItem(MODE_KEY, "data");
   } else {
@@ -536,18 +551,17 @@ async function pickFolder() {
   const button = $("pickFolder");
   button.disabled = true;
   try {
-    const response = await fetch("/api/pick-folder", { method: "POST" });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      showErr("loadErr", data.detail || response.statusText);
-      return;
-    }
-    if (data.path) {
-      const isNewRoot = data.path !== localStorage.getItem(LAST_ROOT_KEY);
-      state.rootDir = data.path;
-      localStorage.setItem(LAST_ROOT_KEY, data.path);
-      await browseDir(data.path, { warmCache: isNewRoot });
-    }
+    const path = await window.openPicker({
+      title: "Select data folder",
+      select: "folder",
+      kind: "folder",
+      native: { url: "/api/pick-folder" },
+    });
+    if (!path) return;
+    const isNewRoot = path !== localStorage.getItem(LAST_ROOT_KEY);
+    state.rootDir = path;
+    localStorage.setItem(LAST_ROOT_KEY, path);
+    await browseDir(path, { warmCache: isNewRoot });
   } finally {
     button.disabled = false;
   }
@@ -2360,7 +2374,7 @@ $("themeToggle").addEventListener("click", toggleTheme);
 // Restore the last mode + sub-tab (first-ever visit or after Home -> chooser).
 state.activeSubTab = localStorage.getItem(SUBTAB_KEY) || "general";
 const savedMode = localStorage.getItem(MODE_KEY);
-setMode(savedMode === "data" || savedMode === "ecm" ? savedMode : "chooser");
+setMode(["data", "ecm", "rul"].includes(savedMode) ? savedMode : "chooser");
 
 loadPersistedFolderCache();
 

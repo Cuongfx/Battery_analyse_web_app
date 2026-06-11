@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -21,11 +22,15 @@ from webapp.api.models import (
     EcmFitBody,
     EcmPickBody,
     FeaturePlotBody,
+    FsMkdirBody,
     FolderLogavgBody,
     FolderPathBody,
     LoadPathBody,
     OcvComputeBody,
     PlotBody,
+    RulInspectBody,
+    RulPickBody,
+    RulPredictBody,
     ScreenshotBody,
 )
 from webapp.config import (
@@ -102,6 +107,12 @@ def _run_tk_dialog(kind: str) -> str:
             "filedialog.askopenfilename(title='Select .xlsx file',"
             "filetypes=[('Excel files','*.xlsx'),('All files','*.*')])"
         )
+    elif kind == "cell":
+        call = (
+            "filedialog.askopenfilename(title='Select a cell file (.pkl or .npz)',"
+            "filetypes=[('Cell files','*.pkl *.npz'),('Pickle','*.pkl'),"
+            "('NumPy npz','*.npz'),('All files','*.*')])"
+        )
     else:
         call = (
             "filedialog.askopenfilename(title='Select .pkl file',"
@@ -131,6 +142,85 @@ def pick_folder() -> dict[str, Any]:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"path": path}
+
+
+# --------------------------------------------------------------------------- #
+# In-browser file/folder picker (server-side filesystem browse)
+# --------------------------------------------------------------------------- #
+# Extensions shown per picker kind. Folder/checkpoint pickers list folders only.
+_FS_FILE_EXTS: dict[str, set[str]] = {
+    "folder": set(),
+    "ckpt": set(),
+    "xlsx": {".xlsx"},
+    "cell": {".pkl", ".npz"},
+}
+
+
+@app.get("/api/fs/list")
+def fs_list(path: str = "", kind: str = "folder") -> dict[str, Any]:
+    """List sub-folders (and, for file pickers, matching files) of `path`.
+
+    Empty `path` defaults to the project root. Dot-entries are hidden. This
+    browses the real filesystem (same reach as the native dialog it replaces);
+    actual file serving still goes through the existing per-feature path jails.
+    """
+    base = Path(path).expanduser() if path.strip() else PROJECT_ROOT
+    try:
+        d = base.resolve()
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not d.is_dir():
+        raise HTTPException(status_code=404, detail=f"Not a folder: {d}")
+
+    exts = _FS_FILE_EXTS.get(kind, set())
+    dirs: list[dict[str, str]] = []
+    files: list[dict[str, str]] = []
+    try:
+        with os.scandir(d) as it:
+            for entry in it:
+                if entry.name.startswith("."):
+                    continue
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        dirs.append({"name": entry.name, "type": "dir"})
+                    elif exts and Path(entry.name).suffix.lower() in exts:
+                        files.append({"name": entry.name, "type": "file"})
+                except OSError:
+                    continue
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=f"Permission denied: {d}") from exc
+
+    dirs.sort(key=lambda e: e["name"].lower())
+    files.sort(key=lambda e: e["name"].lower())
+    parent = str(d.parent) if d.parent != d else None
+    return {
+        "path": str(d),
+        "parent": parent,
+        "home": str(Path.home()),
+        "entries": dirs + files,
+    }
+
+
+@app.post("/api/fs/mkdir")
+def fs_mkdir(body: FsMkdirBody) -> dict[str, Any]:
+    """Create a new folder named `name` inside `path`."""
+    name = body.name.strip()
+    if not name or name in (".", "..") or "/" in name or "\\" in name:
+        raise HTTPException(status_code=400, detail="Invalid folder name")
+    try:
+        parent = Path(body.path).expanduser().resolve()
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not parent.is_dir():
+        raise HTTPException(status_code=404, detail="Parent folder not found")
+    target = parent / name
+    try:
+        target.mkdir(exist_ok=False)
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail="A folder with that name already exists") from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"path": str(target)}
 
 
 @app.get("/api/browse")
@@ -851,6 +941,164 @@ async def ocv_batch_stream(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# --------------------------------------------------------------------------- #
+# Battery Life Prediction — RUL classification tab
+# --------------------------------------------------------------------------- #
+from webapp.data_processing import rul_runner  # noqa: E402
+
+
+@app.post("/api/rul/pick")
+def rul_pick(body: RulPickBody) -> dict[str, Any]:
+    kind = {"folder": "folder", "ckpt": "folder"}.get(body.kind, "cell")
+    try:
+        path = _run_tk_dialog(kind)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"path": path}
+
+
+@app.get("/api/rul/scan-folder")
+def rul_scan_folder(dir: str) -> dict[str, Any]:
+    folder = Path(dir.strip().strip('"\''))
+    if not folder.is_dir():
+        raise HTTPException(status_code=400, detail=f"Not a folder: {folder}")
+    files = rul_runner.find_input_files(folder)
+    return {
+        "folder": str(folder),
+        "count": len(files),
+        "files": [{"name": p.name, "path": str(p)} for p in files],
+    }
+
+
+@app.get("/api/rul/checkpoint-info")
+def rul_checkpoint_info(dir: str) -> dict[str, Any]:
+    folder = Path(dir.strip().strip('"\''))
+    if not folder.is_dir():
+        raise HTTPException(status_code=400, detail=f"Not a folder: {folder}")
+    try:
+        return rul_runner.checkpoint_summary(folder)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/rul/inspect")
+async def rul_inspect(body: RulInspectBody) -> dict[str, Any]:
+    path = Path(body.path.strip().strip('"\''))
+    if not path.is_file():
+        raise HTTPException(status_code=400, detail=f"File not found: {path}")
+    try:
+        return await asyncio.to_thread(rul_runner.inspect_file, path)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not read file: {exc}") from exc
+
+
+@app.post("/api/rul/predict")
+async def rul_predict(body: RulPredictBody) -> dict[str, Any]:
+    path = Path(body.path.strip().strip('"\''))
+    ckpt = Path(body.ckpt_dir.strip().strip('"\''))
+    if not path.is_file():
+        raise HTTPException(status_code=400, detail=f"File not found: {path}")
+    if not ckpt.is_dir():
+        raise HTTPException(status_code=400, detail=f"Checkpoint folder not found: {ckpt}")
+    try:
+        return await asyncio.to_thread(
+            rul_runner.process_file, path, ckpt,
+            body.has_full_history, body.query_cycle,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Prediction failed: {exc}") from exc
+
+
+@app.get("/api/rul/batch-stream")
+async def rul_batch_stream(
+    dir: str,
+    ckpt_dir: str,
+    has_full_history: bool = True,
+    query_cycle: int | None = None,
+) -> StreamingResponse:
+    folder = Path(dir.strip().strip('"\''))
+    ckpt = Path(ckpt_dir.strip().strip('"\''))
+    if not folder.is_dir():
+        raise HTTPException(status_code=400, detail=f"Not a folder: {folder}")
+    if not ckpt.is_dir():
+        raise HTTPException(status_code=400, detail=f"Checkpoint folder not found: {ckpt}")
+
+    files = rul_runner.find_input_files(folder)
+
+    async def generate():
+        total = len(files)
+        if total == 0:
+            yield f"data: {json.dumps({'done': True, 'total': 0, 'results': [], 'errors': []})}\n\n"
+            return
+
+        # Load the model once for the whole batch.
+        try:
+            model, scalers, _ = await asyncio.to_thread(rul_runner.load_model, ckpt)
+        except Exception as exc:
+            yield f"data: {json.dumps({'done': True, 'total': total, 'fatal': str(exc), 'results': [], 'errors': []})}\n\n"
+            return
+
+        results: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        full_results: list[dict[str, Any]] = []
+
+        for i, path in enumerate(files):
+            yield f"data: {json.dumps({'progress': round(i / total * 100), 'current': i + 1, 'total': total, 'file': path.name})}\n\n"
+            try:
+                res = await asyncio.to_thread(
+                    rul_runner.process_file, path, ckpt,
+                    has_full_history, query_cycle, model, scalers,
+                )
+                full_results.append(res)
+                q = res["query"]
+                tr = res.get("trajectory") or {}
+                results.append({
+                    "name": res["name"], "stem": res["stem"], "out_dir": res["out_dir"],
+                    "max_cycle": res["max_cycle"], "query_cycle": q["end_cycle"],
+                    "pred_name": q["pred_name"], "confidence": q["confidence"],
+                    "true_name": q.get("true_name"),
+                    "reached_eol": res["reached_eol"],
+                    "accuracy": tr.get("accuracy"),
+                })
+            except Exception as exc:
+                errors.append({"name": path.name, "error": str(exc)})
+
+        import random
+        preview = random.choice(full_results) if full_results else None
+
+        done = {
+            "done": True, "total": total,
+            "ok_count": len(results), "error_count": len(errors),
+            "results": results, "errors": errors,
+            "output_root": str(rul_runner.OUTPUT_ROOT),
+            "preview": preview,
+        }
+        yield f"data: {json.dumps(done)}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/api/rul/image")
+def rul_image(path: str, download: int = 0) -> FileResponse:
+    """Serve a generated RUL plot (png/svg/pdf), jailed under result/RUL/."""
+    p = Path(path).resolve()
+    try:
+        p.relative_to(rul_runner.OUTPUT_ROOT.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Image path outside output folder")
+    media_type = _ECM_MEDIA_TYPES.get(p.suffix.lower())
+    if media_type is None:
+        raise HTTPException(status_code=400, detail="Unsupported file type")
+    if not p.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    filename = p.name if download else None
+    return FileResponse(str(p), media_type=media_type, filename=filename)
 
 
 if STATIC_DIR.is_dir():

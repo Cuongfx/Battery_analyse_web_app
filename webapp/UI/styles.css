@@ -1766,6 +1766,66 @@ body[data-mode="ecm"] .sidebar { display: none; }
 .ecm-subtab:hover { border-color: var(--border-strong); }
 .ecm-subtab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 .ecm-sub-intro { margin: 0 0 1rem; }
+
+/* RUL top-level tab row (underline style; distinct from the pill subtabs below) */
+.rul-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin: 0.2rem 0 1.1rem;
+  border-bottom: 1px solid var(--border);
+}
+.rul-tab {
+  padding: 0.6rem 1.15rem;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 1.02rem;
+}
+.rul-tab:hover { color: var(--text); }
+.rul-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.rul-tab-panel[hidden] { display: none; }
+
+/* RUL tab — history selector + helper text */
+.rul-history-row { align-items: center; gap: 0.9rem; margin-top: 0.6rem; }
+.rul-history-label { font-weight: 600; color: var(--text); }
+.rul-history-help { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.88rem; }
+.rul-pred-badge {
+  display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px;
+  color: #fff; font-weight: 700; font-size: 0.9rem;
+}
+.rul-correct { color: #2E7D32; font-weight: 700; }
+.rul-incorrect { color: #C62828; font-weight: 700; }
+
+/* RUL result plots + probability table: centered, readable max width */
+.rul-centered { max-width: 920px; margin-left: auto; margin-right: auto; }
+.rul-centered .ecm-figure { width: 100%; }
+.rul-centered .ecm-plot-img { display: block; width: 100%; }
+#rulPlots .ecm-figure-head, #rulTrajPlot .ecm-figure-head { justify-content: space-between; }
+#rulMetrics { justify-content: center; }
+
+/* RUL — Model Explanation subtab */
+.rul-explain-card {
+  border: 1px solid var(--border); border-radius: 12px; background: var(--panel);
+  padding: 1.1rem 1.3rem; margin: 0 auto 1.2rem; max-width: 980px;
+}
+.rul-explain-card h3 { margin: 0 0 0.5rem; color: var(--text); font-size: 1.15rem; }
+.rul-explain-list { margin: 0.4rem 0 0.9rem; padding-left: 1.1rem; color: var(--text); line-height: 1.55; }
+.rul-explain-list li { margin-bottom: 0.35rem; }
+.rul-class-list { list-style: none; padding-left: 0; }
+.rul-class-list li { display: flex; align-items: center; gap: 0.55rem; }
+.rul-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; display: inline-block; }
+.rul-explain-figure { margin: 0.6rem 0 0; }
+.rul-explain-figure img {
+  display: block; width: 100%; max-width: 920px; margin: 0 auto;
+  border: 1px solid var(--border); border-radius: 8px; background: #fff; padding: 0.5rem;
+}
+.rul-explain-figure figcaption {
+  margin-top: 0.45rem; text-align: center; color: var(--muted); font-size: 0.85rem;
+}
 .ecm-primary {
   background: var(--accent); color: #fff; border: none; border-radius: 8px;
   padding: 0.55rem 1.1rem; font-weight: 600; cursor: pointer;
@@ -1927,11 +1987,18 @@ body[data-mode="ecm"] .sidebar { display: none; }
 body[data-mode="chooser"] .app-shell { display: none; }
 body[data-mode="chooser"] #chooserScreen { display: flex; }
 body[data-mode="data"] #chooserScreen,
-body[data-mode="ecm"] #chooserScreen { display: none; }
+body[data-mode="ecm"] #chooserScreen,
+body[data-mode="rul"] #chooserScreen { display: none; }
 
-/* In ECM mode hide the Data-Analyse sub-tab bar; in Data mode hide the ECM panel. */
-body[data-mode="ecm"] .topbar { display: none; }
-body[data-mode="data"] #ecmPanel { display: none; }
+/* In ECM/RUL mode hide the Data-Analyse sub-tab bar; in Data mode hide them. */
+body[data-mode="ecm"] .topbar,
+body[data-mode="rul"] .topbar { display: none; }
+body[data-mode="data"] #ecmPanel,
+body[data-mode="data"] #rulPanel { display: none; }
+
+/* RUL is a self-contained workflow — hide the data-source sidebar (like ECM). */
+body[data-mode="rul"] .app-shell { grid-template-columns: 1fr; }
+body[data-mode="rul"] .sidebar { display: none; }
 
 @media (max-width: 640px) {
   .chooser-cards { flex-direction: column; }
@@ -1967,3 +2034,157 @@ body[data-mode="data"] #ecmPanel { display: none; }
 .ecm-ocv-table { margin-top: 0.6rem; }
 .ecm-ocv-table > summary { cursor: pointer; font-weight: 600; color: var(--text); padding: 0.3rem 0; }
 .ecm-ocv-table .ecm-result-table { max-height: 280px; overflow-y: scroll; }
+
+/* --------------------------------------------------------------------------- */
+/* In-browser file/folder picker modal                                         */
+/* --------------------------------------------------------------------------- */
+.picker-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+.picker-modal {
+  width: min(680px, 100%);
+  max-height: min(76vh, 720px);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.32);
+  overflow: hidden;
+}
+.picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.2rem;
+  border-bottom: 1px solid var(--border);
+}
+.picker-title { margin: 0; font-size: 1.15rem; color: var(--text); }
+.picker-x {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0.2rem 0.4rem;
+  border-radius: 6px;
+}
+.picker-x:hover { color: var(--text); background: var(--panel-soft); }
+
+.picker-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.9rem 1.1rem 0.6rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-soft);
+}
+.picker-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0.3rem;
+  border-radius: 7px;
+}
+.picker-ico:hover { color: var(--text); background: var(--panel); }
+.picker-ico-end { margin-left: auto; }
+.picker-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.86rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 0.3rem;
+}
+
+.picker-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  margin: 0 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  min-height: 220px;
+}
+.picker-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.8rem;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+.picker-row:last-child { border-bottom: none; }
+.picker-row:hover { background: var(--panel-soft); }
+.picker-row.sel { background: var(--accent-soft); }
+.picker-row-ico { display: inline-flex; flex: 0 0 auto; }
+.picker-row-name {
+  color: var(--text);
+  font-size: 0.92rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.picker-file .picker-row-name { color: var(--muted); }
+.picker-empty {
+  padding: 1.4rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.picker-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.9rem 1.1rem 1.1rem;
+}
+.picker-native {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+.picker-native:hover { color: var(--text); }
+.picker-hint {
+  flex: 1 1 auto;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+.picker-hint.picker-err { color: #c0392b; }
+.picker-actions { display: flex; gap: 0.5rem; flex: 0 0 auto; }
+.picker-btn {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.picker-btn:hover { border-color: var(--border-strong); }
+.picker-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.picker-btn-primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+.picker-btn:disabled { opacity: 0.5; cursor: default; }
+.picker-btn-primary:disabled { background: var(--accent); border-color: var(--accent); }

@@ -22,6 +22,9 @@ webapp/cache/
 # Generated ECM results (extracted pulses, fitted parameters, plots)
 equiv-circ-model/Equivalent-Circuit/
 
+# Generated RUL prediction results (plots, CSVs, extracted features)
+result/
+
 # Claude Code local files (settings, worktrees)
 .claude/
 

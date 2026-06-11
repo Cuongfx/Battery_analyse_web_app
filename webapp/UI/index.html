@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css?v=3" />
+  <link rel="stylesheet" href="/styles.css?v=8" />
 </head>
 <body data-mode="chooser">
   <header class="app-header">
@@ -35,6 +35,11 @@
         <span class="mode-card-icon">🔋</span>
         <span class="mode-card-title">ECM</span>
         <span class="mode-card-desc">Extract HPPC pulses, fit R/C &amp; OCV</span>
+      </button>
+      <button type="button" class="mode-card" data-mode="rul">
+        <span class="mode-card-icon">⏳</span>
+        <span class="mode-card-title">Battery Life Prediction</span>
+        <span class="mode-card-desc">Predict remaining useful life (RUL) class with ML models</span>
       </button>
     </div>
   </section>
@@ -364,7 +369,7 @@
         <section class="summary-head">
           <div>
             <h2>Data summary</h2>
-            <p class="muted">Battery dataset collection grouped by electrode chemistry — adapted from <em>Table 1, battery_data.pdf</em>.</p>
+            <p class="muted">Battery dataset collection grouped by electrode chemistry — adapted from <em>Table 1, Data_Info/battery_data.pdf</em>.</p>
           </div>
         </section>
         <div id="summaryStats" class="summary-stats"></div>
@@ -606,6 +611,124 @@
           </section>
         </div><!-- /#ecmOcvSub -->
       </section>
+
+      <section class="tab-panel ecm-panel" id="rulPanel" hidden>
+        <section class="ecm-head">
+          <div>
+            <h2>Battery Life Prediction</h2>
+            <p class="muted">Lightweight ML models predict a Remaining-Useful-Life (RUL) class from a cell's cycling data. Results are saved under <code>result/RUL/&lt;file&gt;/</code>.</p>
+          </div>
+        </section>
+
+        <!-- Top-level tabs (only RUL for now; more methods can be added later) -->
+        <div class="rul-tabs" id="rulTabs" role="tablist">
+          <button type="button" class="rul-tab active" data-rultab="rul" role="tab" aria-selected="true">RUL</button>
+        </div>
+
+        <!-- Tab: RUL -->
+        <div id="rulTab-rul" class="rul-tab-panel">
+        <div class="ecm-subtabs" id="rulSubtabs">
+          <button type="button" class="ecm-subtab active" data-rulsub="explain">Model Explanation</button>
+          <button type="button" class="ecm-subtab" data-rulsub="tool">Select data &amp; model</button>
+        </div>
+
+        <!-- Subtab: Model Explanation -->
+        <div id="rulExplainSub">
+          <p class="muted ecm-sub-intro">Lightweight machine-learning models ingest a single or a few most recent cycles and optionally the early-life cycles to output an actionable RUL state (early life → near end of life) at any query point across cells, so they work for both short- and long-lifespan cells. The neural-network model with 16 cycles of input reaches <b>83.6%</b> accuracy (80.1% for a random forest with single-cycle input) on the MIT–Stanford test set. To alleviate overfitting, covariance matrix adaptation–evolution strategy (<b>CMA-ES</b>) fine-tuning after gradient-based training reduces overfitting and raises accuracy to <b>85.8%</b>.</p>
+
+          <article class="rul-explain-card">
+            <h3>Model architecture</h3>
+            <p class="muted">A dual-branch network fuses the <b>shape of the degradation</b> with <b>hand-crafted health indicators</b> over a 16-cycle input window:</p>
+            <ul class="rul-explain-list">
+              <li><b>ΔQ branch.</b> Per-cycle ΔQ discharge curves (ΔQ = Q<sub>cyc</sub> − Q<sub>ref</sub>, 1000 voltage bins) pass through three 1-D Conv-BN-ELU blocks and adaptive average pooling → a 32-D embedding per cycle.</li>
+              <li><b>Feature branch.</b> 12 features per cycle (capacity, charge/discharge time, dQ/dV statistics, log-variance terms …) are linearly projected + ELU to 32-D.</li>
+              <li><b>Fusion → Bi-GRU.</b> The two branches are concatenated (16 × 64) and read by a 2-layer bidirectional GRU that models the cycle-to-cycle trajectory.</li>
+              <li><b>Head.</b> Dense layers + softmax over the <b>5 RUL classes</b>.</li>
+            </ul>
+            <figure class="rul-explain-figure">
+              <img src="/assets/rul_architecture.png" alt="RUL model architecture — dual-branch CNN + Bi-GRU" />
+              <figcaption>Dual-branch CNN + Bi-GRU classifier (tensor shapes shown for the 16-cycle input window).</figcaption>
+            </figure>
+          </article>
+
+          <article class="rul-explain-card">
+            <h3>RUL classes &amp; actionable states</h3>
+            <p class="muted">Remaining Useful Life (cycles until 80% end-of-life) is discretised into five ordered states. As degradation increases, the cell steps down through the classes — the jump into <b>Class 4</b> is an actionable BMS trigger where degradation accelerates from active-material loss.</p>
+            <ul class="rul-explain-list rul-class-list">
+              <li><span class="rul-dot" style="background:#1565C0"></span><b>Class 0 — Early life</b> (RUL &gt; 400)</li>
+              <li><span class="rul-dot" style="background:#2E7D32"></span><b>Class 1 — Mid-early life</b> (300 &lt; RUL ≤ 400)</li>
+              <li><span class="rul-dot" style="background:#F9A825"></span><b>Class 2 — Mid life</b> (200 &lt; RUL ≤ 300)</li>
+              <li><span class="rul-dot" style="background:#E65100"></span><b>Class 3 — Late life</b> (100 &lt; RUL ≤ 200)</li>
+              <li><span class="rul-dot" style="background:#B71C1C"></span><b>Class 4 — Near end of life</b> (RUL ≤ 100)</li>
+            </ul>
+            <figure class="rul-explain-figure">
+              <img src="/assets/rul_classes.png" alt="RUL class staircase from early life to near end of life" />
+              <figcaption>The five RUL states across increasing degradation; the step into Class 4 flags severe, accelerating degradation.</figcaption>
+            </figure>
+          </article>
+        </div><!-- /#rulExplainSub -->
+
+        <!-- Subtab: Select data & model (single-page tool) -->
+        <div id="rulToolSub" hidden>
+          <p class="err" id="rulErr" hidden></p>
+
+          <section class="ecm-stage panel" id="rulInputs">
+            <div class="ecm-mode-row">
+              <label class="ecm-radio"><input type="radio" name="rulFileMode" value="single" checked /><span>Single cell file (<code>.pkl</code> / <code>.npz</code>)</span></label>
+              <label class="ecm-radio"><input type="radio" name="rulFileMode" value="folder" /><span>Folder of cell files (recursive batch)</span></label>
+            </div>
+
+            <div class="ecm-field-row">
+              <button type="button" id="rulPick" class="ecm-primary">Choose file</button>
+              <div class="folder-path" id="rulPath">No file selected</div>
+            </div>
+            <div class="ecm-folder-info" id="rulFolderInfo" hidden></div>
+            <div class="ecm-detected" id="rulDetected" hidden></div>
+
+            <div class="ecm-field-row">
+              <button type="button" id="rulPickCkpt" class="secondary">Choose model checkpoint folder</button>
+              <div class="folder-path" id="rulCkptPath">No checkpoint selected</div>
+            </div>
+            <span class="ecm-cap-note" id="rulCkptNote"></span>
+
+            <div class="ecm-mode-row rul-history-row">
+              <span class="rul-history-label">My data has:</span>
+              <label class="ecm-radio"><input type="radio" name="rulHistory" value="full" checked /><span>Full cycle history (early life + recent)</span></label>
+              <label class="ecm-radio"><input type="radio" name="rulHistory" value="partial" /><span>Recent cycles only (≥ 16 points)</span></label>
+            </div>
+            <p class="rul-history-help" id="rulHistoryHelp"></p>
+
+            <div class="ecm-grid2" id="rulQueryWrap" hidden>
+              <div class="field">
+                <label for="rulQueryCycle">Query cycle (recent-window end)</label>
+                <input type="number" id="rulQueryCycle" min="16" step="1" placeholder="latest available" />
+                <span class="ecm-cap-note" id="rulQueryNote"></span>
+              </div>
+            </div>
+
+            <div class="ecm-actions ecm-actions-split">
+              <button type="button" id="rulStartOver" class="secondary">↺ Reset</button>
+              <button type="button" id="rulRunPredict" class="ecm-primary" disabled>Predict RUL</button>
+            </div>
+          </section>
+
+          <div class="loading inline-loading" id="rulLoading" hidden>
+            <div class="spinner"></div><span>Running model…</span>
+          </div>
+          <div class="ecm-progress" id="rulBatchProgress" hidden>
+            <div class="ecm-progress-bar"><div class="ecm-progress-fill" id="rulBatchFill"></div></div>
+            <div class="ecm-progress-text" id="rulBatchText"></div>
+          </div>
+          <div class="ecm-results-head" id="rulResultsHead"></div>
+          <div class="ecm-metrics" id="rulMetrics"></div>
+          <div class="ecm-warnings" id="rulWarnings" hidden></div>
+          <div class="ecm-result-plots rul-centered" id="rulPlots"></div>
+          <div class="ecm-result-table rul-centered" id="rulTable"></div>
+          <div class="ecm-result-plots rul-centered" id="rulTrajPlot"></div>
+          <div class="ecm-batch-summary" id="rulBatchSummary" hidden></div>
+        </div><!-- /#rulToolSub -->
+        </div><!-- /#rulTab-rul -->
+      </section>
     </main>
   </div>
 
@@ -614,8 +737,10 @@
     <img src="" alt="Enlarged plot" />
   </div>
 
-  <script src="/app.js?v=42"></script>
-  <script src="/ecm.js?v=8"></script>
-  <script src="/ocv.js?v=2"></script>
+  <script src="/picker.js?v=1"></script>
+  <script src="/app.js?v=44"></script>
+  <script src="/ecm.js?v=9"></script>
+  <script src="/ocv.js?v=3"></script>
+  <script src="/rul.js?v=6"></script>
 </body>
 </html>
