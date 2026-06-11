@@ -310,11 +310,26 @@ function setMode(mode) {
     });
     $("ecmPanel").hidden = false;
     $("ecmPanel").classList.add("active");
+    $("rulPanel").hidden = true;
+    $("rulPanel").classList.remove("active");
     if (window.ecmInit) window.ecmInit();
     localStorage.setItem(MODE_KEY, "ecm");
+  } else if (mode === "rul") {
+    DATA_SUBTABS.forEach((t) => {
+      $(panelId(t)).hidden = true;
+      $(panelId(t)).classList.remove("active");
+    });
+    $("ecmPanel").hidden = true;
+    $("ecmPanel").classList.remove("active");
+    $("rulPanel").hidden = false;
+    $("rulPanel").classList.add("active");
+    if (window.rulInit) window.rulInit();
+    localStorage.setItem(MODE_KEY, "rul");
   } else if (mode === "data") {
     $("ecmPanel").hidden = true;
     $("ecmPanel").classList.remove("active");
+    $("rulPanel").hidden = true;
+    $("rulPanel").classList.remove("active");
     switchTab(state.activeSubTab || "general");
     localStorage.setItem(MODE_KEY, "data");
   } else {
@@ -2360,7 +2375,7 @@ $("themeToggle").addEventListener("click", toggleTheme);
 // Restore the last mode + sub-tab (first-ever visit or after Home -> chooser).
 state.activeSubTab = localStorage.getItem(SUBTAB_KEY) || "general";
 const savedMode = localStorage.getItem(MODE_KEY);
-setMode(savedMode === "data" || savedMode === "ecm" ? savedMode : "chooser");
+setMode(["data", "ecm", "rul"].includes(savedMode) ? savedMode : "chooser");
 
 loadPersistedFolderCache();
 

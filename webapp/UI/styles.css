@@ -1766,6 +1766,17 @@ body[data-mode="ecm"] .sidebar { display: none; }
 .ecm-subtab:hover { border-color: var(--border-strong); }
 .ecm-subtab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 .ecm-sub-intro { margin: 0 0 1rem; }
+
+/* RUL tab — history selector + helper text */
+.rul-history-row { align-items: center; gap: 0.9rem; margin-top: 0.6rem; }
+.rul-history-label { font-weight: 600; color: var(--text); }
+.rul-history-help { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.88rem; }
+.rul-pred-badge {
+  display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px;
+  color: #fff; font-weight: 700; font-size: 0.9rem;
+}
+.rul-correct { color: #2E7D32; font-weight: 700; }
+.rul-incorrect { color: #C62828; font-weight: 700; }
 .ecm-primary {
   background: var(--accent); color: #fff; border: none; border-radius: 8px;
   padding: 0.55rem 1.1rem; font-weight: 600; cursor: pointer;
@@ -1927,11 +1938,18 @@ body[data-mode="ecm"] .sidebar { display: none; }
 body[data-mode="chooser"] .app-shell { display: none; }
 body[data-mode="chooser"] #chooserScreen { display: flex; }
 body[data-mode="data"] #chooserScreen,
-body[data-mode="ecm"] #chooserScreen { display: none; }
+body[data-mode="ecm"] #chooserScreen,
+body[data-mode="rul"] #chooserScreen { display: none; }
 
-/* In ECM mode hide the Data-Analyse sub-tab bar; in Data mode hide the ECM panel. */
-body[data-mode="ecm"] .topbar { display: none; }
-body[data-mode="data"] #ecmPanel { display: none; }
+/* In ECM/RUL mode hide the Data-Analyse sub-tab bar; in Data mode hide them. */
+body[data-mode="ecm"] .topbar,
+body[data-mode="rul"] .topbar { display: none; }
+body[data-mode="data"] #ecmPanel,
+body[data-mode="data"] #rulPanel { display: none; }
+
+/* RUL is a self-contained workflow — hide the data-source sidebar (like ECM). */
+body[data-mode="rul"] .app-shell { grid-template-columns: 1fr; }
+body[data-mode="rul"] .sidebar { display: none; }
 
 @media (max-width: 640px) {
   .chooser-cards { flex-direction: column; }

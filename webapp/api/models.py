@@ -88,3 +88,27 @@ class OcvComputeBody(BaseModel):
     capacity: float | None = None  # SOC-axis capacity; defaults to detected Qd
     ocv_mode: str = "both"  # "tabulated" | "analytical" | "both"
     ocv_poly_degree: int = 8
+
+
+# --------------------------------------------------------------------------- #
+# Battery Life Prediction — RUL classification
+# --------------------------------------------------------------------------- #
+class RulPickBody(BaseModel):
+    """File picker for the RUL tab.
+
+    'file'   → a single .pkl or .npz cell file
+    'folder' → a folder of cell files (batch)
+    'ckpt'   → a checkpoint folder (model weights + scalers)
+    """
+    kind: str = "file"
+
+
+class RulInspectBody(BaseModel):
+    path: str  # .pkl or .npz
+
+
+class RulPredictBody(BaseModel):
+    path: str            # .pkl or .npz cell file
+    ckpt_dir: str        # checkpoint folder (best_clf*.pt + scalers)
+    has_full_history: bool = True
+    query_cycle: int | None = None  # window end cycle; defaults to the latest
