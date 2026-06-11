@@ -221,16 +221,22 @@ def _plot_query(out_dir: Path, stem: str, query: dict) -> dict[str, str]:
                     color=(CLASS_COLORS[ci] if is_pred else _GRAY_BAR),
                     edgecolor=("#111827" if is_true else "none"),
                     linewidth=(1.6 if is_true else 0.0))
-            label = f"{probs[ci]:.0%}" + ("   ✓ true" if is_true else "")
-            ax.text(min(probs[ci] + 0.02, 1.02), pos, label, va="center", ha="left",
+            pct = probs[ci] * 100
+            # Use 1 decimal for values that would round to 0% or 100% as integers
+            fmt = f"{pct:.1f}%" if (0 < pct < 1 or 99 < pct < 100) else f"{pct:.0f}%"
+            label = fmt + ("   ✓ true" if is_true else "")
+            x_label = max(probs[ci], 0.01) + 0.02  # always offset slightly from axis
+            ax.text(min(x_label, 1.02), pos, label, va="center", ha="left",
                     fontsize=9.5, color="#1f2430",
                     fontweight=("bold" if is_pred else "normal"))
         ax.set_yticks(range(N_CLASSES))
         ax.set_yticklabels([CLASS_NAMES[ci] for ci in order])
-        ax.set_xlim(0, 1.15)
+        ax.set_xlim(0, 1.18)
         ax.set_xlabel("Probability")
+        conf_pct = query['confidence'] * 100
+        conf_fmt = f"{conf_pct:.1f}%" if (99 < conf_pct < 100 or 0 < conf_pct < 1) else f"{conf_pct:.0f}%"
         ax.set_title(f"RUL at cycle {query['end_cycle']}:  {query['pred_name']}"
-                     f"   ·   {query['confidence']:.0%} confidence")
+                     f"   ·   {conf_fmt} confidence")
         fig.tight_layout()
         return _save_vectors(fig, out_dir / f"{stem}_rul_query.png")
 
