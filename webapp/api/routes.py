@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -21,6 +22,7 @@ from webapp.api.models import (
     EcmFitBody,
     EcmPickBody,
     FeaturePlotBody,
+    FsMkdirBody,
     FolderLogavgBody,
     FolderPathBody,
     LoadPathBody,
@@ -140,6 +142,85 @@ def pick_folder() -> dict[str, Any]:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"path": path}
+
+
+# --------------------------------------------------------------------------- #
+# In-browser file/folder picker (server-side filesystem browse)
+# --------------------------------------------------------------------------- #
+# Extensions shown per picker kind. Folder/checkpoint pickers list folders only.
+_FS_FILE_EXTS: dict[str, set[str]] = {
+    "folder": set(),
+    "ckpt": set(),
+    "xlsx": {".xlsx"},
+    "cell": {".pkl", ".npz"},
+}
+
+
+@app.get("/api/fs/list")
+def fs_list(path: str = "", kind: str = "folder") -> dict[str, Any]:
+    """List sub-folders (and, for file pickers, matching files) of `path`.
+
+    Empty `path` defaults to the project root. Dot-entries are hidden. This
+    browses the real filesystem (same reach as the native dialog it replaces);
+    actual file serving still goes through the existing per-feature path jails.
+    """
+    base = Path(path).expanduser() if path.strip() else PROJECT_ROOT
+    try:
+        d = base.resolve()
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not d.is_dir():
+        raise HTTPException(status_code=404, detail=f"Not a folder: {d}")
+
+    exts = _FS_FILE_EXTS.get(kind, set())
+    dirs: list[dict[str, str]] = []
+    files: list[dict[str, str]] = []
+    try:
+        with os.scandir(d) as it:
+            for entry in it:
+                if entry.name.startswith("."):
+                    continue
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        dirs.append({"name": entry.name, "type": "dir"})
+                    elif exts and Path(entry.name).suffix.lower() in exts:
+                        files.append({"name": entry.name, "type": "file"})
+                except OSError:
+                    continue
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=f"Permission denied: {d}") from exc
+
+    dirs.sort(key=lambda e: e["name"].lower())
+    files.sort(key=lambda e: e["name"].lower())
+    parent = str(d.parent) if d.parent != d else None
+    return {
+        "path": str(d),
+        "parent": parent,
+        "home": str(Path.home()),
+        "entries": dirs + files,
+    }
+
+
+@app.post("/api/fs/mkdir")
+def fs_mkdir(body: FsMkdirBody) -> dict[str, Any]:
+    """Create a new folder named `name` inside `path`."""
+    name = body.name.strip()
+    if not name or name in (".", "..") or "/" in name or "\\" in name:
+        raise HTTPException(status_code=400, detail="Invalid folder name")
+    try:
+        parent = Path(body.path).expanduser().resolve()
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not parent.is_dir():
+        raise HTTPException(status_code=404, detail="Parent folder not found")
+    target = parent / name
+    try:
+        target.mkdir(exist_ok=False)
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail="A folder with that name already exists") from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"path": str(target)}
 
 
 @app.get("/api/browse")

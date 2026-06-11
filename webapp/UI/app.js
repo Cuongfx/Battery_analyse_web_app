@@ -551,18 +551,17 @@ async function pickFolder() {
   const button = $("pickFolder");
   button.disabled = true;
   try {
-    const response = await fetch("/api/pick-folder", { method: "POST" });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      showErr("loadErr", data.detail || response.statusText);
-      return;
-    }
-    if (data.path) {
-      const isNewRoot = data.path !== localStorage.getItem(LAST_ROOT_KEY);
-      state.rootDir = data.path;
-      localStorage.setItem(LAST_ROOT_KEY, data.path);
-      await browseDir(data.path, { warmCache: isNewRoot });
-    }
+    const path = await window.openPicker({
+      title: "Select data folder",
+      select: "folder",
+      kind: "folder",
+      native: { url: "/api/pick-folder" },
+    });
+    if (!path) return;
+    const isNewRoot = path !== localStorage.getItem(LAST_ROOT_KEY);
+    state.rootDir = path;
+    localStorage.setItem(LAST_ROOT_KEY, path);
+    await browseDir(path, { warmCache: isNewRoot });
   } finally {
     button.disabled = false;
   }

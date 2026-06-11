@@ -50,6 +50,12 @@ class EcmPickBody(BaseModel):
     kind: str = Field("xlsx", description="'xlsx' (single file) or 'folder'.")
 
 
+class FsMkdirBody(BaseModel):
+    """Create a new folder inside `path` (used by the in-browser file picker)."""
+    path: str
+    name: str
+
+
 class EcmCapacityBody(BaseModel):
     path: str
     sheet: str = "Record List1"
