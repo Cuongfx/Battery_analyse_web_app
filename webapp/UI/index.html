@@ -634,7 +634,7 @@
             <p class="muted">A dual-branch network fuses the <b>shape of the degradation</b> with <b>hand-crafted health indicators</b> over a 16-cycle input window:</p>
             <ul class="rul-explain-list">
               <li><b>ΔQ branch.</b> Per-cycle ΔQ discharge curves (ΔQ = Q<sub>cyc</sub> − Q<sub>ref</sub>, 1000 voltage bins) pass through three 1-D Conv-BN-ELU blocks and adaptive average pooling → a 32-D embedding per cycle.</li>
-              <li><b>Feature branch.</b> 12 hand-crafted summary features per cycle (capacity, charge/discharge time, dQ/dV statistics, log-variance terms …) are linearly projected + ELU to 32-D.</li>
+              <li><b>Feature branch.</b> 12 features per cycle (capacity, charge/discharge time, dQ/dV statistics, log-variance terms …) are linearly projected + ELU to 32-D.</li>
               <li><b>Fusion → Bi-GRU.</b> The two branches are concatenated (16 × 64) and read by a 2-layer bidirectional GRU that models the cycle-to-cycle trajectory.</li>
               <li><b>Head.</b> Dense layers + softmax over the <b>5 RUL classes</b>.</li>
             </ul>
