@@ -28,8 +28,11 @@
   }
   const pct = (v) => (v == null ? "—" : `${(Number(v) * 100).toFixed(1)}%`);
 
-  const imgUrl = (p) => "/api/rul/image?path=" + encodeURIComponent(p);
-  const dlUrl = (p) => "/api/rul/image?path=" + encodeURIComponent(p) + "&download=1";
+  // Cache-bust token: the plot files are overwritten at the same path each run,
+  // so append a per-prediction nonce to force the browser to refetch the new image.
+  let bust = Date.now();
+  const imgUrl = (p) => "/api/rul/image?path=" + encodeURIComponent(p) + "&_=" + bust;
+  const dlUrl = (p) => "/api/rul/image?path=" + encodeURIComponent(p) + "&download=1&_=" + bust;
 
   function plotFigure(caption, files, alt) {
     if (!files || !files.png) return "";
@@ -269,6 +272,7 @@
   }
 
   function renderResults(res) {
+    bust = Date.now();  // force fresh plot images (files are overwritten in place)
     const q = res.query || {};
     const tr = res.trajectory;
     eg("rulResultsHead").innerHTML =
