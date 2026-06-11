@@ -6,7 +6,7 @@
 > never leaves the machine.
 >
 > *Design by CuongFX*
-
+ 
 | 📊 Data Analyse | 🔋 ECM | ⏳ Battery Life Prediction |
 |---|---|---|
 | Inspect BatteryML `.pkl` cells — dQ/dV, dV/dQ, degradation features, dataset summary. | Fit 1RC/2RC R·C·τ per SOC from HPPC, and estimate OCV curves (Neware `.xlsx`). | Predict an RUL class with a CNN+GRU model — single file or folder batch. |
