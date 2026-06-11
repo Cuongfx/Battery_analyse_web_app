@@ -1,9 +1,8 @@
 # Battery AI Analyzer
 
-> **Local battery-data workbench** with two workspaces: **Data Analyse** (explore,
-> compare and visualise BatteryML cycle-life `.pkl` data) and **ECM** (extract HPPC
-> pulses from Neware `.xlsx` exports and fit an equivalent-circuit model — R0, R1,
-> C1 … per SOC — plus the open-circuit-voltage curve). Everything runs locally; your
+> **Local battery-data workbench** with two workspaces: **Data Analyse** (explore
+> BatteryML cycle-life `.pkl` data) and **ECM** (fit an equivalent-circuit model and
+> estimate OCV curves from Neware `.xlsx` exports). Everything runs locally; your
 > data never leaves the machine.
 >
 > *Design by CuongFX*
@@ -25,22 +24,22 @@ PYTHONPATH=. python -m uvicorn webapp.main:app --host 127.0.0.1 --port 8765
 ```
 
 Open **http://localhost:8765**. **Requirements:** Python 3.11+ (tested on 3.12);
-packages: `fastapi`, `uvicorn`, `pydantic`, `plotly`, `numpy`, `scipy`, `pandas`,
+`fastapi`, `uvicorn`, `pydantic`, `plotly`, `numpy`, `scipy`, `pandas`,
 `matplotlib`, `openpyxl`.
 
 ---
 
 ## Choosing a Workspace
 
-On launch you pick a workspace. Use **← Home** (top-left) at any time to come back
-and switch; the app remembers your last workspace across reloads.
+On launch you pick a workspace; use **← Home** (top-left) to switch. The app
+remembers your last workspace across reloads.
 
 ![Choose a workspace](docs/screenshots/00_choose_workspace.png)
 
 | Workspace | What it does |
 |---|---|
 | **📊 Data Analyse** | Inspect cells, plot dQ/dV & dV/dQ, degradation features, dataset summary (BatteryML `.pkl`). |
-| **🔋 ECM** | Extract HPPC pulses from Neware `.xlsx`, fit 1RC/2RC R·C·τ per SOC, and estimate OCV. |
+| **🔋 ECM** | Fit 1RC/2RC R·C·τ per SOC from HPPC, and estimate discharge/charge OCV (Neware `.xlsx`). |
 
 ---
 
@@ -60,142 +59,120 @@ A **left sidebar** (data source + folder cache) plus four sub-tabs:
 ### Choose your data folder
 
 Click **Choose folder** and select the root directory holding your BatteryML
-subfolders (e.g. `Raw_BML/`). The sidebar then lists every **subfolder** (`DIR`)
-and **PKL file** (`PKL`); the app remembers the folder across reloads, and cached
-subfolders show a filled dot (●) for instant access.
-
-| Action | Result |
-|---|---|
-| **Single-click a subfolder** | Opens it in *General Inspection* |
-| **Double-click a subfolder** | Navigates *into* it to reveal its PKL files (keeps the current tab) |
-| **Single-click a PKL file** | Loads that cell into *Analyse* / *Feature Analyse* |
-
-The first time you open a subfolder, the app reads every PKL, computes per-file
-metrics (max cycle, Qd/Qc, current, capacity fade, EOL cycle) and caches them on
-the server (`webapp/cache/folder_cycle_cache.json`) and in the browser.
+subfolders. The sidebar lists every **subfolder** (`DIR`) and **PKL file** (`PKL`);
+cached subfolders show a filled dot (●). Single-click a subfolder to open it in
+*General Inspection*, double-click to navigate into it, single-click a PKL to load
+it into *Analyse* / *Feature Analyse*. Per-file metrics are computed once and cached
+(`webapp/cache/folder_cycle_cache.json`), keyed by path + size + mtime.
 
 ### General Inspection
 
 ![General inspection of the MATR dataset](docs/screenshots/02_general_inspection.png)
 
-A green info card (from `Data_Info/<FOLDER>_README.md`) plus stat cards (cells in
-folder, files plotted, files with issues, ambient temperature). The **bar chart**
-shows each cell's maximum cycle on a pale-blue → deep-navy gradient; ordering
-buttons (**Original**, **↓ Low → High**, **↑ High → Low**) sort in-browser. Click a
-bar to toggle the **EOL @ 80 % Qd** marker; **SVG**/**PDF** export the view. The
-**Files** table below lists temperature, cycles, currents, Qd/Qc bounds and fade per
-cell, with a temperature filter when a folder mixes temperatures.
+Stat cards plus a **bar chart** of each cell's maximum cycle (sortable in-browser);
+click a bar to toggle the **EOL @ 80 % Qd** marker. A **Files** table lists
+temperature, cycles, currents, Qd/Qc bounds and fade per cell.
 
 ### Analyse (single-cell)
 
 ![Single-cell analysis with summary cards and a current-vs-time curve](docs/screenshots/03_single_cell_analyse.png)
 
-Summary cards (cycles, voltage/current range, Qd/Qc first→last with % drop) plus
-plot types: dQ/dV and dV/dQ (discharge / charge / both, vs voltage or vs time),
-Qd-vs-V, Qcharge-vs-V, and Qdmax/Qcmax-vs-cycle. Pick a plot, type the cycles
-(`0, 50, 100` or `all`), optionally **Filter** to clip axes to the 1–99 percentile,
-then **Generate plot**. Range sliders zoom; **Autoscale** resets.
+Summary cards plus plot types: dQ/dV and dV/dQ (discharge / charge / both, vs
+voltage or time), Qd-vs-V, Qcharge-vs-V, and Qdmax/Qcmax-vs-cycle. Pick a plot,
+type cycles (`0, 50, 100` or `all`), optionally **Filter** to the 1–99 percentile,
+then **Generate plot**.
 
 ### Feature Analyse
 
-Difference-based features for degradation studies, with three sub-modes.
-**Plot single** / **Compare two** render a feature for one cell or overlay two;
-tick **Use reference** to subtract a chosen reference cycle.
+Difference-based degradation features. **Plot single** / **Compare two** render a
+feature for one cell or overlay two (tick **Use reference** to subtract a reference
+cycle); **Plot Log feature** compares **every cell in the folder** at a target cycle.
 
 ![Compare two — Δ dQ/dV vs voltage for two MATR cells](docs/screenshots/04_feature_analyse_compare_2.png)
 
-**Plot Log feature** compares **every cell in the folder** at a target cycle —
-one point per cell (e.g. `log⟨|Δ dQ/dV|⟩`) against its cycle life.
-
 ![Plot Log feature — whole-folder scatter coloured by cycle life](docs/screenshots/05_log_features_analyse.png)
-
-Every chart supports **Filter**, range sliders, and **SVG**/**PDF** export.
 
 ### Data summary
 
-The bundled dataset collection grouped by electrode chemistry (adapted from
-*Table 1, battery_data.pdf*): datasets, total cells, chemistry families, and a
-per-dataset table (cells, electrodes, nominal capacity, temperatures).
+The bundled dataset collection grouped by electrode chemistry: datasets, total
+cells, chemistry families, and a per-dataset table.
 
 ![Data summary table](docs/screenshots/06_data_summary.png)
 
-### Folder cache
-
-The sidebar **Folder cache** panel manages cached data: **Cache all folders**
-(bulk pre-load), **Export JSON** / **Import JSON** (back up or move a cache between
-machines), and **Clear**. The cache is keyed by path + size + mtime and
-auto-invalidated when files change.
-
-### Ambient temperature
-
-Resolved from the **filename** (`NMC_25C`, `CALB_0_B182 → 0 °C`, `Tongji1_CY25 → 25 °C`;
-cell-ID / C-rate tokens are ignored), then a **README fallback** for
-single-temperature datasets, otherwise **N/A**.
+Every chart supports **Filter**, range sliders, and **SVG**/**PDF** export. The
+sidebar **Folder cache** panel can bulk pre-load, export/import, or clear the cache.
+Ambient temperature is resolved from the filename, then a README fallback, else N/A.
 
 ---
 
 # Workspace 2 — ECM (Equivalent Circuit Model)
 
-Estimate R0, R1, C1 (1RC) or R0, R1, C1, R2, C2 (2RC) per SOC from a Neware HPPC
-test, plus the OCV–SOC curve. Input is the fixed Neware `.xlsx` export (worksheet
-default `Record List1`). A guided 4-step stepper drives the flow.
+Two subtabs for Neware `.xlsx` exports (worksheet default `Record List1`):
+**HPPC** (fit R·C·τ per SOC) and **OCV** (discharge/charge OCV curves).
 
-### Step 1 — Select data
+## HPPC — fit R/C
 
-![ECM — select data and optional limits](docs/screenshots/07_ecm_select.png)
+A guided stepper: **Select → Extract pulses → Fit → Results**.
 
-Choose a **single `.xlsx`** or a **folder** (processed recursively). The worksheet
-name is editable. **Capacity for SOC** auto-detects from the data, and an
-**Optional limits** panel lets you enter a max/min voltage, max charge/discharge
-current (discharge as a negative number) and a reference **nominal capacity** —
-all optional.
+![ECM — HPPC subtab, select data](docs/screenshots/07_ecm_select.png)
 
-- **Auto-detected** per file: **Qd** (constant-discharge throughput), **Qc** (final
-  CCCV charge), and the HPPC-window voltage/current ranges.
-- The simulated voltage is **clipped to the cell's voltage window** (yours, or the
-  detected range) and the fit-plot axis is locked — this removes the non-physical
-  charge-pulse overshoot a linear ECM would otherwise show.
-- Out-of-range measured data raises **non-blocking warnings**; the signal is never modified.
-
-### Steps 2–3 — Extract pulses & Fit
-
-**Extract pulses** detects the HPPC region and saves the pulse data (CSV + plot).
-**Fit** runs the model with a chosen **order** (1RC / 2RC), **algorithm**
-(`curve_fit`, `multi_start`, `bounded_ls`, `robust_ls`, `differential_evolution`)
-and **OCV output** (tabulated / analytical polynomial / both). For a folder, all
-files run as a batch with a progress bar.
-
-### Step 4 — Results
+- **Select** a single `.xlsx` or a **folder** (batch, recursive). **Capacity for
+  SOC** auto-detects (**Qd** discharge / **Qc** final CCCV); optional voltage/current
+  limits and a reference nominal capacity. Out-of-range data raises non-blocking
+  warnings — the signal is never modified.
+- The **whole test** is captured and plotted (charge → HPPC → recharge); the fit
+  uses the HPPC pulse relaxations, with the simulated voltage **clipped to the
+  cell's voltage window** to remove non-physical charge-pulse overshoot.
+- **Fit** options: order **1RC / 2RC**, **algorithm** (`curve_fit`, `multi_start`,
+  `bounded_ls`, `robust_ls`, `differential_evolution`), **0% SOC extrapolation**
+  technique (`log_poly2`, `weighted_local`, `pchip`, `gpr`, or none), and **OCV
+  output** (tabulated / analytical polynomial / both).
 
 ![ECM results — cards, R/C table and stacked plots](docs/screenshots/08_ecm_results.png)
 
-Metric cards (**MAE**, **RMSE**, **Qd**, **Qc**, **OCV@100 %**, **OCV@0 %**), the
-R/C/τ-per-SOC table, and the plots — **Measured-vs-fitted voltage**, then
-**R/C/τ vs SOC**, then **OCV vs SOC** — each stacked one per row.
-
-The **estimated OCV** comes from the rested voltage before each discharge pulse plus
-the final discharge-to-0 % point; it is shown as a tabulated curve, an optional
-polynomial fit, and a scrollable table.
+**Results**: metric cards (**MAE, RMSE, Qd, Qc, OCV@100 %, OCV@0 %**), the R/C/τ-per-SOC
+table (with an **extrapolated 0 % SOC row** appended from the fitted curve), and the
+plots — measured-vs-fitted voltage, R/C/τ vs SOC, and OCV vs SOC. Estimated OCV uses
+the rested voltage before each discharge pulse plus the final discharge-to-0 % point.
 
 ![ECM — estimated OCV vs SOC](docs/screenshots/09_ecm_ocv.png)
 
-**Saving & zooming plots.** Every ECM plot has **SVG** and **PDF** buttons (top-right)
-that download a true-vector copy. **Click any plot** to enlarge it; close with the
-**✕** button, by clicking the image/backdrop, or with **Esc**.
+Every plot has **SVG**/**PDF** download buttons and **click-to-zoom** (close with ✕ / backdrop / Esc).
 
-![ECM — click-to-zoom overlay](docs/screenshots/10_ecm_zoom.png)
+## OCV — discharge / charge
+
+A slow GITT-style OCV test (separate file format): full charge → step-by-step slow
+discharge with a rest between steps → one low-rate charge back to full. Two steps:
+**Select → Compute & results**, for a single file or a **folder** (batch with a
+progress bar and per-file summary table).
+
+SOC is a single continuous coulomb-count from 100 %; capacity auto-detects (Qd) and
+is overridable. It estimates:
+
+- **Discharge OCV** — a smooth curve through the rested equilibrium anchors (the raw
+  GITT loaded trace is kept faint for reference),
+- **Charge OCV** — the low-rate charge voltage as a pseudo-OCV,
+- **Mean OCV** and **hysteresis** between the two low-rate curves.
+
+![OCV — discharge & charge OCV vs SOC](docs/screenshots/11_ocv_curves.png)
+
+![OCV — mean OCV and hysteresis vs SOC](docs/screenshots/12_ocv_mean_hyst.png)
 
 ### Outputs
 
 All results are written under `equiv-circ-model/Equivalent-Circuit/<file>/`:
 
 ```
-<file>_pulses.csv / .png / .svg / .pdf       # extracted HPPC pulses
-<file>_<N>rc_parameters.csv                  # R/C/τ per SOC
-<file>_<N>rc_fit.png / .svg / .pdf           # measured vs fitted voltage
-<file>_<N>rc_params.png / .svg / .pdf        # R/C/τ vs SOC
-<file>_ocv.csv  +  <file>_ocv.png/.svg/.pdf  # OCV vs SOC (tabulated [+ polynomial])
+# HPPC
+<file>_pulses.csv / .png / .svg / .pdf       # captured test + extracted pulses
+<file>_<N>rc_parameters.csv                  # R/C/τ per SOC (+ 0% SOC row)
+<file>_<N>rc_fit.* / _<N>rc_params.*         # measured-vs-fitted, R/C/τ-vs-SOC
+<file>_ocv.csv / .png / .svg / .pdf          # OCV vs SOC (tabulated [+ polynomial])
 <file>_summary.csv                           # capacity, ranges, limits, OCV@100/0, warnings
+# OCV test
+<file>_ocvtest.* / _ocvtest_mean_hyst.*      # discharge/charge OCV, mean & hysteresis plots
+<file>_ocvtest_curves.csv                    # soc, discharge/charge/mean/hysteresis
+<file>_ocvtest_discharge_rested.csv / _smooth.csv / _summary.csv
 ```
 
 ---
@@ -207,13 +184,13 @@ All results are written under `equiv-circ-model/Equivalent-Circuit/<file>/`:
 ```
 Root folder/                 ← select with "Choose folder"
 ├── CALB/  CALB_0_B182.pkl …
-├── HUST/  HUST_1-1.pkl …
 ├── MATR/  MATR_b1c0.pkl …
 └── Data_Info/               ← optional README files for dataset descriptions
 ```
 
-**ECM** — a single Neware `.xlsx` HPPC export, or a folder of them (scanned
-recursively). Each test is assumed to be an HPPC sweep followed by a full CCCV charge.
+**ECM** — a single Neware `.xlsx` (or a folder, scanned recursively). **HPPC**:
+an HPPC sweep followed by a full CCCV charge. **OCV**: a slow step-discharge sweep
+plus a low-rate charge.
 
 ---
 
@@ -221,14 +198,14 @@ recursively). Each test is assumed to be an HPPC sweep followed by a full CCCV c
 
 ```
 webapp/
-├── UI/                  ← browser HTML, CSS, JavaScript (app.js = Data Analyse, ecm.js = ECM)
+├── UI/                  ← HTML/CSS/JS (app.js = Data Analyse, ecm.js = HPPC, ocv.js = OCV)
 ├── api/                 ← API routes and request models
-├── data_processing/     ← BatteryML loading, inspection, cache, sessions, paths,
-│                          ecm_runner.py (ECM pipeline) + ecm_ocv.py (OCV estimation)
+├── data_processing/     ← BatteryML loading, cache, sessions, paths;
+│                          ecm_runner + ecm_ocv + ecm_zero_soc (HPPC) · ocv_runner (OCV test)
 ├── plot/                ← Plotly chart builders
 ├── config.py            ← shared paths and constants
 └── main.py              ← app entrypoint
-equiv-circ-model/        ← standalone ECM engine (HPPC extraction + curve fitting), imported at runtime
+equiv-circ-model/        ← standalone ECM engine (HPPC extraction + curve fitting)
 ```
 
 ---
@@ -238,11 +215,10 @@ equiv-circ-model/        ← standalone ECM engine (HPPC extraction + curve fitt
 | Symptom | Fix |
 |---|---|
 | Files show `—` in every column | Those PKL files are corrupt/truncated. Re-download, then **↻ Reload data**. |
-| "No cycle data found" | The PKL lacks a `cycle_data` list with `cycle_number` fields. |
 | Loading slow every time | Delete `webapp/cache/folder_cycle_cache.json` and reload. |
 | Stale UI after an update | Hard-refresh: `Ctrl+Shift+R` (Win/Linux) or `Cmd+Shift+R` (Mac). |
-| ECM: "Sheet not found" | Set the correct worksheet name in Step 1 (default `Record List1`). |
-| ECM: odd capacity / SOC | Enter the cell capacity in **Capacity for SOC**, or check the file is a full HPPC + CCCV run. |
+| ECM/OCV: "Sheet not found" | Set the correct worksheet name (default `Record List1`). |
+| ECM: odd capacity / SOC | Enter the cell capacity in **Capacity for SOC**, or check the file is a full run. |
 | "Connection error" | The server may have restarted — refresh the page. |
 
 ---
@@ -250,14 +226,12 @@ equiv-circ-model/        ← standalone ECM engine (HPPC extraction + curve fitt
 ## Dataset Download
 
 This app works with the **BatteryLife** dataset collection:
-**https://github.com/Ruifeng-Tan/BatteryLife** (Hugging Face / Zenodo links for
-`CALCE`, `MATR`, `HUST`, `HNEI`, `MICH`, `CALB`, `MICH_EXP`, `SNL`, `Tongji`, …).
+**https://github.com/Ruifeng-Tan/BatteryLife** (`CALCE`, `MATR`, `HUST`, `HNEI`,
+`MICH`, `CALB`, `MICH_EXP`, `SNL`, `Tongji`, …).
 
 ---
 
 ## Citation
-
-### This tool
 
 > Pham, Manh Cuong. *Battery AI Analyzer*. RPTU Kaiserslautern-Landau, 2026. https://github.com/Cuongfx/Battery_analyse_web_app
 
@@ -271,36 +245,13 @@ This app works with the **BatteryLife** dataset collection:
 }
 ```
 
-### BatteryLife dataset
-
-```bibtex
-@inproceedings{10.1145/3711896.3737372,
-  author    = {Tan, Ruifeng and Hong, Weixiang and Tang, Jiayue and Lu, Xibin
-               and Ma, Ruijun and Zheng, Xiang and Li, Jia and Huang, Jiaqiang
-               and Zhang, Tong-Yi},
-  title     = {BatteryLife: A Comprehensive Dataset and Benchmark for Battery Life Prediction},
-  year      = {2025},
-  isbn      = {9798400714542},
-  publisher = {Association for Computing Machinery},
-  address   = {New York, NY, USA},
-  url       = {https://doi.org/10.1145/3711896.3737372},
-  doi       = {10.1145/3711896.3737372},
-  booktitle = {Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery
-               and Data Mining V.2},
-  pages     = {5789--5800},
-  numpages  = {12},
-  location  = {Toronto ON, Canada},
-  series    = {KDD '25}
-}
-```
-
-Tan et al., *BatteryLife: A Comprehensive Dataset and Benchmark for Battery Life Prediction*, KDD '25, Toronto, Canada.
+**BatteryLife dataset** — Tan et al., *BatteryLife: A Comprehensive Dataset and
+Benchmark for Battery Life Prediction*, KDD '25, Toronto, Canada.
+[doi:10.1145/3711896.3737372](https://doi.org/10.1145/3711896.3737372)
 
 ---
 
 ## Author
 
-👨‍💻 **Manh Cuong Pham**
-📧 mpham@rptu.de
-💼 PhD Candidate at RPTU Kaiserslautern-Landau
+👨‍💻 **Manh Cuong Pham** · 📧 mpham@rptu.de · PhD Candidate, RPTU Kaiserslautern-Landau
 🔗 [Team page](https://eit.rptu.de/fgs/meas/team/m-sc-manh-cuong-pham) · [GitHub repo](https://github.com/Cuongfx/Battery_analyse_web_app)

@@ -26,6 +26,7 @@ import pandas as pd  # noqa: E402
 
 from webapp.config import PROJECT_ROOT  # noqa: E402
 from webapp.data_processing import ecm_ocv  # noqa: E402
+from webapp.data_processing import ecm_zero_soc  # noqa: E402
 
 # Make the standalone ``equiv-circ-model`` package importable.
 EQUIV_DIR = PROJECT_ROOT / "equiv-circ-model"
@@ -55,6 +56,11 @@ DEFAULT_PULSE_MAX_SECONDS = extract_hppc.DEFAULT_PULSE_MAX_SECONDS
 # --------------------------------------------------------------------------- #
 def algorithms() -> tuple[str, ...]:
     return available_algorithms()
+
+
+def extrapolation_methods() -> list[dict[str, str]]:
+    """Selectable 0% SOC extrapolation techniques as ``[{value, label}, ...]``."""
+    return ecm_zero_soc.available_extrapolation_methods()
 
 
 def output_dir_for(stem: str) -> Path:
@@ -165,6 +171,8 @@ def analyze_hppc(
 
     ``capacity_override`` (if given) is the capacity used for the OCV SOC axis,
     matching the value used for the fit; otherwise the detected capacity is used.
+    (The ~0% SOC RC row is extrapolated later in ``fit_pulses`` from the fitted
+    parameter curves, so it needs nothing from here.)
     """
     data, blocks, kinds = _classify(xlsx_path, sheet, pulse_max_seconds)
     first_pulse, final_charge = _region_indices(kinds)
@@ -316,6 +324,38 @@ def save_vector_formats(fig, png_path: Path) -> tuple[str, str]:
     return str(svg_path), str(pdf_path)
 
 
+def _clip_to_last_marker(hppc_data) -> None:
+    """Trim the loaded data to the last HPPC ``S`` marker (drops the recharge tail).
+
+    The pulse CSV now spans the whole process; everything after the last HPPC
+    marker is the trailing full charge, which must not enter the fit or the
+    MAE/RMSE. All fitted relaxation windows end at or before that marker.
+    """
+    s = hppc_data.get_indices_s()
+    if len(s) == 0:
+        return
+    last = int(s[-1]) + 1
+    hppc_data.time = hppc_data.time[:last]
+    hppc_data.current = hppc_data.current[:last]
+    hppc_data.voltage = hppc_data.voltage[:last]
+    hppc_data.flags = hppc_data.flags[:last]
+
+
+def _append_zero_soc_row(rctau, soc_points, rc_order, method):
+    """Append a ~0% SOC row extrapolated from the fitted parameter curves.
+
+    Returns ``(rctau, soc_points, warning)``. The row is built by
+    ``ecm_zero_soc.zero_soc_row`` (each R/tau extrapolated to SOC=0, C derived);
+    on failure the table is returned unchanged with a non-blocking warning.
+    """
+    result = ecm_zero_soc.zero_soc_row(soc_points, rctau, rc_order, method)
+    if result["row"] is None:
+        return rctau, soc_points, result["warning"]
+    rctau = np.vstack([rctau, np.asarray(result["row"], dtype=float)])
+    soc_points = np.append(soc_points, float(result["soc"]))
+    return rctau, soc_points, None
+
+
 def extract_pulses(
     xlsx_path: Path,
     out_csv: Path,
@@ -323,14 +363,19 @@ def extract_pulses(
     pulse_max_seconds: float = DEFAULT_PULSE_MAX_SECONDS,
     save_plot: Path | None = None,
 ) -> dict[str, Any]:
-    """Extract the HPPC pulse section into ``out_csv`` (and an optional PNG/SVG/PDF)."""
+    """Capture the whole test process into ``out_csv`` (and an optional PNG/SVG/PDF).
+
+    The CSV/plot span the complete process (initial full charge -> rest -> HPPC
+    -> final rest -> recharge); HPPC section markers are preserved so the fit
+    still operates only on the pulse relaxations.
+    """
     data = extract_hppc.load_records(xlsx_path, sheet)
     blocks = extract_hppc.build_blocks(data["command"])
-    end_row, section_flags = extract_hppc.detect_hppc_region(
+    _, section_flags = extract_hppc.detect_hppc_region(
         data, blocks, pulse_max_seconds
     )
-    time, current, voltage, flags = extract_hppc.build_output(
-        data, end_row, section_flags
+    time, current, voltage, flags = extract_hppc.build_full_output(
+        data, section_flags
     )
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     extract_hppc.write_csv(out_csv, time, current, voltage, flags)
@@ -338,7 +383,10 @@ def extract_pulses(
     pulse_svg = pulse_pdf = None
     if save_plot is not None:
         save_plot.parent.mkdir(parents=True, exist_ok=True)
-        fig = extract_hppc.plot_region(time, current, voltage, save_path=save_plot, show=False)
+        fig = extract_hppc.plot_region(
+            time, current, voltage, save_path=save_plot, show=False,
+            title="Battery test — full process (charge · rest · HPPC · rest · recharge)",
+        )
         pulse_svg, pulse_pdf = save_vector_formats(fig, save_plot)
         plt.close("all")
 
@@ -367,6 +415,7 @@ def fit_pulses(
     source: str = "pulse",
     save_plots: bool = True,
     v_limits: tuple[float | None, float | None] | None = None,
+    zero_soc_method: str | None = ecm_zero_soc.DEFAULT_METHOD,
 ) -> dict[str, Any]:
     """Fit an ECM from an extracted pulse CSV and save params + plots.
 
@@ -374,9 +423,17 @@ def fit_pulses(
     terminal voltage is clipped to it (a real cell cannot leave its voltage
     window) before computing MAE/RMSE and plotting, and the fit-plot y-axis is
     locked to it. The estimated R/C parameters are unaffected by clipping.
+
+    ``zero_soc_method`` selects the technique used to **extrapolate** a ~0% SOC
+    row from the fitted 100%->5% parameter curves (see ``ecm_zero_soc``); it is
+    appended to the R/C-vs-SOC table/plot. Pass ``None``/``"none"`` to skip it.
+    It enriches the parameter outputs only; the fit/MAE stay HPPC-based.
     """
     config = EcmConfig(q_cell=capacity) if capacity else EcmConfig()
     hppc_data = CellHppcData(pulse_csv)
+    # The pulse CSV spans the whole process; drop the trailing recharge (every
+    # row past the last HPPC marker) so the fit and MAE/RMSE stay HPPC-only.
+    _clip_to_last_marker(hppc_data)
 
     _, fit_result = fit_ecm_from_hppc(
         hppc_data,
@@ -399,13 +456,21 @@ def fit_pulses(
     mae = mean_absolute_error(hppc_data.voltage, vt)
     rmse = root_mean_square_error(hppc_data.voltage, vt)
 
+    rctau = np.asarray(fit_result.rctau, dtype=float)
+    soc_points = np.asarray(fit_result.soc_points, dtype=float)
+    zero_soc_warning = None
+    if zero_soc_method and zero_soc_method != "none":
+        rctau, soc_points, zero_soc_warning = _append_zero_soc_row(
+            rctau, soc_points, rc_order, zero_soc_method
+        )
+
     out_dir.mkdir(parents=True, exist_ok=True)
     params_csv = out_dir / f"{stem}_{rc_order}rc_parameters.csv"
     param_df = save_rctau_csv(
-        fit_result.rctau,
+        rctau,
         params_csv,
         rc_order=rc_order,
-        soc_values=fit_result.soc_points,
+        soc_values=soc_points,
     )
 
     fit_png = out_dir / f"{stem}_{rc_order}rc_fit.png"
@@ -438,6 +503,8 @@ def fit_pulses(
         "source": source,
         "mae": float(mae),
         "rmse": float(rmse),
+        "zero_soc_method": zero_soc_method,
+        "zero_soc_warning": zero_soc_warning,
         "columns": list(param_df.columns),
         "rows": rounded.to_dict(orient="records"),
         "params_csv": str(params_csv),
@@ -464,12 +531,14 @@ def process_file(
     nominal_capacity: float | None = None,
     ocv_mode: str = "both",
     ocv_poly_degree: int = 8,
+    zero_soc_method: str | None = ecm_zero_soc.DEFAULT_METHOD,
 ) -> dict[str, Any]:
     """Full pipeline for one file: analyze, validate, extract, fit, OCV, save.
 
     ``v_max``/``v_min``/``i_chg_max``/``i_dch_max`` are optional limits (else the
     detected HPPC-window ranges are used). ``nominal_capacity`` is reference-only
-    and does not affect SOC.
+    and does not affect SOC. ``zero_soc_method`` selects the 0% SOC extrapolation
+    technique (``None``/``"none"`` to skip it).
     """
     stem = xlsx_path.stem
     out_dir = output_dir_for(stem)
@@ -497,8 +566,10 @@ def process_file(
     fit = fit_pulses(
         pulse_csv, out_dir, stem,
         rc_order=rc_order, algorithm=algorithm, capacity=capacity,
-        v_limits=v_limits,
+        v_limits=v_limits, zero_soc_method=zero_soc_method,
     )
+    if fit.get("zero_soc_warning"):
+        warnings = warnings + [fit["zero_soc_warning"]]
 
     ocv = build_ocv_outputs(
         out_dir, stem, analysis["ocv_anchors"], ocv_mode, ocv_poly_degree

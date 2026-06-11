@@ -1749,6 +1749,23 @@ body[data-mode="ecm"] .sidebar { display: none; }
 
 .ecm-actions { display: flex; gap: 0.6rem; }
 .ecm-actions-split { justify-content: space-between; }
+.ecm-actions-top { margin-bottom: 1rem; }
+
+/* HPPC / OCV subtab switcher */
+.ecm-subtabs { display: flex; gap: 0.5rem; margin: 0.2rem 0 1rem; }
+.ecm-subtab {
+  padding: 0.55rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel-soft);
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.ecm-subtab:hover { border-color: var(--border-strong); }
+.ecm-subtab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ecm-sub-intro { margin: 0 0 1rem; }
 .ecm-primary {
   background: var(--accent); color: #fff; border: none; border-radius: 8px;
   padding: 0.55rem 1.1rem; font-weight: 600; cursor: pointer;

@@ -77,3 +77,14 @@ class EcmFitBody(BaseModel):
     nominal_capacity: float | None = None  # reference only; does not affect SOC
     ocv_mode: str = "both"  # "tabulated" | "analytical" | "both"
     ocv_poly_degree: int = 8
+    # 0% SOC extrapolation technique; "none" disables the appended 0% row.
+    zero_soc_method: str = "log_poly2"
+
+
+class OcvComputeBody(BaseModel):
+    """OCV-test computation (separate from the HPPC/ECM fit)."""
+    path: str
+    sheet: str = "Record List1"
+    capacity: float | None = None  # SOC-axis capacity; defaults to detected Qd
+    ocv_mode: str = "both"  # "tabulated" | "analytical" | "both"
+    ocv_poly_degree: int = 8

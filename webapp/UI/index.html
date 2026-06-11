@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css?v=2" />
+  <link rel="stylesheet" href="/styles.css?v=3" />
 </head>
 <body data-mode="chooser">
   <header class="app-header">
@@ -380,9 +380,17 @@
         <section class="ecm-head">
           <div>
             <h2>Equivalent Circuit Model</h2>
-            <p class="muted">Extract HPPC pulses from Neware <code>.xlsx</code> exports and fit R0, R1, C1 … per SOC. Results are saved under <code>equiv-circ-model/Equivalent-Circuit/&lt;file&gt;/</code>.</p>
+            <p class="muted">Two workflows for Neware <code>.xlsx</code> exports. Results are saved under <code>equiv-circ-model/Equivalent-Circuit/&lt;file&gt;/</code>.</p>
           </div>
         </section>
+
+        <div class="ecm-subtabs" id="ecmSubtabs">
+          <button type="button" class="ecm-subtab active" data-ecmsub="hppc">HPPC — fit R/C</button>
+          <button type="button" class="ecm-subtab" data-ecmsub="ocv">OCV — discharge / charge</button>
+        </div>
+
+        <div id="ecmHppcSub">
+          <p class="muted ecm-sub-intro">Extract HPPC pulses and fit R0, R1, C1 … per SOC (with a 0% SOC extrapolation).</p>
 
         <ol class="ecm-stepper" id="ecmStepper">
           <li class="ecm-step active" data-step="1"><span class="ecm-step-no">1</span><span class="ecm-step-label">Select data</span></li>
@@ -491,6 +499,10 @@
                 <option value="analytical">Analytical (polynomial)</option>
               </select>
             </div>
+            <div class="field">
+              <label for="ecmZeroSoc">0% SOC extrapolation</label>
+              <select id="ecmZeroSoc"></select>
+            </div>
           </div>
           <div class="ecm-actions ecm-actions-split">
             <button type="button" id="ecmStep3Back" class="secondary">← Back</button>
@@ -509,15 +521,90 @@
         <section class="ecm-stage panel" id="ecmStage4" hidden>
           <div class="ecm-results-head" id="ecmResultsHead"></div>
           <div class="ecm-metrics" id="ecmMetrics"></div>
+          <div class="ecm-actions ecm-actions-top">
+            <button type="button" id="ecmRestart" class="secondary">↺ Start over</button>
+          </div>
           <div class="ecm-warnings" id="ecmWarnings" hidden></div>
           <div class="ecm-result-table" id="ecmResultTable"></div>
           <div class="ecm-result-plots" id="ecmResultPlots"></div>
           <div class="ecm-ocv" id="ecmOcv" hidden></div>
           <div class="ecm-batch-summary" id="ecmBatchSummary" hidden></div>
-          <div class="ecm-actions">
-            <button type="button" id="ecmRestart" class="secondary">↺ Start over</button>
-          </div>
         </section>
+        </div><!-- /#ecmHppcSub -->
+
+        <!-- OCV subtab: slow GITT discharge + low-rate charge -> OCV curves -->
+        <div id="ecmOcvSub" hidden>
+          <p class="muted ecm-sub-intro">OCV test: step-by-step slow discharge + a low-rate charge → discharge &amp; charge OCV, mean OCV and hysteresis. Outputs are saved as <code>*_ocvtest_*</code>.</p>
+
+          <ol class="ecm-stepper" id="ocvStepper">
+            <li class="ecm-step active" data-step="1"><span class="ecm-step-no">1</span><span class="ecm-step-label">Select data</span></li>
+            <li class="ecm-step" data-step="2"><span class="ecm-step-no">2</span><span class="ecm-step-label">Compute &amp; results</span></li>
+          </ol>
+
+          <p class="err" id="ocvErr" hidden></p>
+
+          <!-- Step 1: select -->
+          <section class="ecm-stage panel" id="ocvStage1">
+            <div class="ecm-mode-row">
+              <label class="ecm-radio"><input type="radio" name="ocvFileMode" value="single" checked /><span>Single <code>.xlsx</code> file</span></label>
+              <label class="ecm-radio"><input type="radio" name="ocvFileMode" value="folder" /><span>Folder of <code>.xlsx</code> files (recursive)</span></label>
+            </div>
+            <div class="ecm-field-row">
+              <button type="button" id="ocvPick" class="ecm-primary">Choose file</button>
+              <div class="folder-path" id="ocvPath">No file selected</div>
+            </div>
+            <div class="ecm-folder-info" id="ocvFolderInfo" hidden></div>
+            <div class="ecm-grid2">
+              <div class="field">
+                <label for="ocvSheet">Worksheet name</label>
+                <input type="text" id="ocvSheet" value="Record List1" />
+              </div>
+              <div class="field">
+                <label for="ocvCapacity">Capacity for SOC (Ah, optional)</label>
+                <div class="ecm-cap-wrap">
+                  <input type="number" id="ocvCapacity" step="0.0001" placeholder="auto-detect (Qd)" />
+                  <button type="button" id="ocvDetectCap" class="secondary small" disabled>Auto-detect</button>
+                </div>
+                <span class="ecm-cap-note" id="ocvCapNote"></span>
+              </div>
+            </div>
+            <div class="ecm-detected" id="ocvDetected" hidden></div>
+            <div class="ecm-grid2">
+              <div class="field">
+                <label for="ocvMode">OCV output</label>
+                <select id="ocvMode">
+                  <option value="both" selected>Tabulated + analytical</option>
+                  <option value="tabulated">Tabulated only</option>
+                  <option value="analytical">Analytical (polynomial)</option>
+                </select>
+              </div>
+            </div>
+            <div class="ecm-actions">
+              <button type="button" id="ocvStep1Next" class="ecm-primary" disabled>Next →</button>
+            </div>
+          </section>
+
+          <!-- Step 2: compute + results -->
+          <section class="ecm-stage panel" id="ocvStage2" hidden>
+            <div class="ecm-actions ecm-actions-split">
+              <button type="button" id="ocvStartOver" class="secondary">↺ Start over</button>
+              <button type="button" id="ocvRunCompute" class="ecm-primary">Compute OCV</button>
+            </div>
+            <div class="loading inline-loading" id="ocvLoading" hidden>
+              <div class="spinner"></div><span>Reading workbook &amp; computing OCV…</span>
+            </div>
+            <div class="ecm-progress" id="ocvBatchProgress" hidden>
+              <div class="ecm-progress-bar"><div class="ecm-progress-fill" id="ocvBatchFill"></div></div>
+              <div class="ecm-progress-text" id="ocvBatchText"></div>
+            </div>
+            <div class="ecm-results-head" id="ocvResultsHead"></div>
+            <div class="ecm-metrics" id="ocvMetrics"></div>
+            <div class="ecm-warnings" id="ocvWarnings" hidden></div>
+            <div class="ecm-result-plots" id="ocvPlots"></div>
+            <div class="ecm-result-table" id="ocvTable"></div>
+            <div class="ecm-batch-summary" id="ocvBatchSummary" hidden></div>
+          </section>
+        </div><!-- /#ecmOcvSub -->
       </section>
     </main>
   </div>
@@ -528,6 +615,7 @@
   </div>
 
   <script src="/app.js?v=42"></script>
-  <script src="/ecm.js?v=6"></script>
+  <script src="/ecm.js?v=8"></script>
+  <script src="/ocv.js?v=2"></script>
 </body>
 </html>
