@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css?v=6" />
+  <link rel="stylesheet" href="/styles.css?v=8" />
 </head>
 <body data-mode="chooser">
   <header class="app-header">
@@ -620,6 +620,13 @@
           </div>
         </section>
 
+        <!-- Top-level tabs (only RUL for now; more methods can be added later) -->
+        <div class="rul-tabs" id="rulTabs" role="tablist">
+          <button type="button" class="rul-tab active" data-rultab="rul" role="tab" aria-selected="true">RUL</button>
+        </div>
+
+        <!-- Tab: RUL -->
+        <div id="rulTab-rul" class="rul-tab-panel">
         <div class="ecm-subtabs" id="rulSubtabs">
           <button type="button" class="ecm-subtab active" data-rulsub="explain">Model Explanation</button>
           <button type="button" class="ecm-subtab" data-rulsub="tool">Select data &amp; model</button>
@@ -720,6 +727,7 @@
           <div class="ecm-result-plots rul-centered" id="rulTrajPlot"></div>
           <div class="ecm-batch-summary" id="rulBatchSummary" hidden></div>
         </div><!-- /#rulToolSub -->
+        </div><!-- /#rulTab-rul -->
       </section>
     </main>
   </div>
@@ -729,9 +737,10 @@
     <img src="" alt="Enlarged plot" />
   </div>
 
-  <script src="/app.js?v=43"></script>
-  <script src="/ecm.js?v=8"></script>
-  <script src="/ocv.js?v=2"></script>
-  <script src="/rul.js?v=4"></script>
+  <script src="/picker.js?v=1"></script>
+  <script src="/app.js?v=44"></script>
+  <script src="/ecm.js?v=9"></script>
+  <script src="/ocv.js?v=3"></script>
+  <script src="/rul.js?v=6"></script>
 </body>
 </html>

@@ -71,6 +71,18 @@
     return data;
   }
 
+  // ---- top-level tabs (only "rul" for now; extensible for future methods) - //
+  function showTab(which) {
+    document.querySelectorAll("#rulTabs .rul-tab").forEach((b) => {
+      const on = b.dataset.rultab === which;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    document.querySelectorAll(".rul-tab-panel").forEach((p) => {
+      p.hidden = p.id !== "rulTab-" + which;
+    });
+  }
+
   // ---- subtabs (freely switchable: Model Explanation / the tool) --------- //
   function showSub(which) {
     document.querySelectorAll("#rulSubtabs .ecm-subtab").forEach((b) => {
@@ -114,7 +126,13 @@
   async function pick() {
     showErr("");
     try {
-      const { path } = await postJSON("/api/rul/pick", { kind: state.mode === "folder" ? "folder" : "file" });
+      const folder = state.mode === "folder";
+      const path = await window.openPicker({
+        title: folder ? "Select folder of cell files" : "Select cell file (.pkl / .npz)",
+        select: folder ? "folder" : "file",
+        kind: folder ? "folder" : "cell",
+        native: { url: "/api/rul/pick", body: { kind: folder ? "folder" : "file" } },
+      });
       if (!path) return;
       state.path = path;
       eg("rulPath").textContent = path;
@@ -136,7 +154,12 @@
   async function pickCkpt() {
     showErr("");
     try {
-      const { path } = await postJSON("/api/rul/pick", { kind: "ckpt" });
+      const path = await window.openPicker({
+        title: "Select model checkpoint folder",
+        select: "folder",
+        kind: "ckpt",
+        native: { url: "/api/rul/pick", body: { kind: "ckpt" } },
+      });
       if (!path) return;
       state.ckptDir = path;
       eg("rulCkptPath").textContent = path;
@@ -387,8 +410,12 @@
 
     updateModeUI();
     wireLightbox();
+    showTab("rul");      // default top-level tab
     showSub("explain");  // default to Model Explanation
 
+    document.querySelectorAll("#rulTabs .rul-tab").forEach((b) => {
+      b.addEventListener("click", () => showTab(b.dataset.rultab));
+    });
     document.querySelectorAll("#rulSubtabs .ecm-subtab").forEach((b) => {
       b.addEventListener("click", () => showSub(b.dataset.rulsub));
     });
