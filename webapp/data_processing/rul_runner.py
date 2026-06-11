@@ -163,6 +163,34 @@ def _window_end_cycle(cell: dict, start: int) -> int:
 # ─────────────────────────────────────────────────────────────────────────── #
 # Plotting
 # ─────────────────────────────────────────────────────────────────────────── #
+# Modern, clean matplotlib styling — applied locally (rc_context) so it never
+# leaks into the ECM/OCV figures.
+_MODERN_RC = {
+    "figure.facecolor": "white",
+    "axes.facecolor": "white",
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "axes.edgecolor": "#c9d0db",
+    "axes.linewidth": 1.1,
+    "axes.titlesize": 12,
+    "axes.titleweight": "bold",
+    "axes.titlecolor": "#1f2430",
+    "axes.labelcolor": "#3a4150",
+    "axes.labelsize": 10.5,
+    "xtick.color": "#5b6470",
+    "ytick.color": "#5b6470",
+    "xtick.labelsize": 9.5,
+    "ytick.labelsize": 9.5,
+    "font.size": 10.5,
+    "grid.color": "#e9ecf2",
+    "grid.linewidth": 1.0,
+    "legend.frameon": False,
+    "legend.fontsize": 8.5,
+}
+_GRAY_BAR = "#dfe3ea"
+_QUERY_LINE = "#7c3aed"
+
+
 def _save_vectors(fig, png_path: Path) -> dict[str, str]:
     fig.savefig(png_path, dpi=150, bbox_inches="tight")
     fig.savefig(png_path.with_suffix(".svg"), bbox_inches="tight")
@@ -176,27 +204,35 @@ def _save_vectors(fig, png_path: Path) -> dict[str, str]:
 
 
 def _plot_query(out_dir: Path, stem: str, query: dict) -> dict[str, str]:
+    """Horizontal probability bars — cleaner and avoids rotated/overlapping labels."""
     probs = np.asarray(query["probs"], dtype=float)
-    fig, ax = plt.subplots(figsize=(8, 4.2))
-    colors = [CLASS_COLORS[i] if i == query["pred_class"] else "#c4c9d4" for i in range(N_CLASSES)]
-    bars = ax.bar(range(N_CLASSES), probs, color=colors, edgecolor="#333", linewidth=0.5)
-    for i, b in enumerate(bars):
-        ax.text(b.get_x() + b.get_width() / 2, b.get_height() + 0.01,
-                f"{probs[i]:.0%}", ha="center", va="bottom", fontsize=8)
-    if query.get("true_class") is not None:
-        tc = query["true_class"]
-        ax.add_patch(plt.Rectangle((tc - 0.5, 0), 1, 1.0, fill=False,
-                                   edgecolor="#111", linewidth=2.0, linestyle="--"))
-        ax.text(tc, 1.02, "true", ha="center", va="bottom", fontsize=8, fontweight="bold")
-    ax.set_xticks(range(N_CLASSES))
-    ax.set_xticklabels(CLASS_NAMES, rotation=15, ha="right", fontsize=8.5)
-    ax.set_ylim(0, 1.12)
-    ax.set_ylabel("Probability")
-    ax.set_title(f"RUL prediction at cycle {query['end_cycle']} — "
-                 f"{query['pred_name']} ({query['confidence']:.0%} confidence)",
-                 fontsize=11, fontweight="bold")
-    ax.grid(True, axis="y", alpha=0.25)
-    return _save_vectors(fig, out_dir / f"{stem}_rul_query.png")
+    pred_c = query["pred_class"]
+    true_c = query.get("true_class")
+    order = list(range(N_CLASSES))[::-1]  # RUL>400 on top, RUL<100 at bottom
+
+    with plt.rc_context(_MODERN_RC):
+        fig, ax = plt.subplots(figsize=(8.5, 3.7))
+        ax.set_axisbelow(True)
+        ax.xaxis.grid(True, zorder=0)
+        for pos, ci in enumerate(order):
+            is_pred = ci == pred_c
+            is_true = true_c == ci
+            ax.barh(pos, probs[ci], height=0.62, zorder=3,
+                    color=(CLASS_COLORS[ci] if is_pred else _GRAY_BAR),
+                    edgecolor=("#111827" if is_true else "none"),
+                    linewidth=(1.6 if is_true else 0.0))
+            label = f"{probs[ci]:.0%}" + ("   ✓ true" if is_true else "")
+            ax.text(min(probs[ci] + 0.02, 1.02), pos, label, va="center", ha="left",
+                    fontsize=9.5, color="#1f2430",
+                    fontweight=("bold" if is_pred else "normal"))
+        ax.set_yticks(range(N_CLASSES))
+        ax.set_yticklabels([CLASS_NAMES[ci] for ci in order])
+        ax.set_xlim(0, 1.15)
+        ax.set_xlabel("Probability")
+        ax.set_title(f"RUL at cycle {query['end_cycle']}:  {query['pred_name']}"
+                     f"   ·   {query['confidence']:.0%} confidence")
+        fig.tight_layout()
+        return _save_vectors(fig, out_dir / f"{stem}_rul_query.png")
 
 
 def _plot_trajectory(out_dir: Path, stem: str, traj: dict, query: dict,
@@ -206,43 +242,47 @@ def _plot_trajectory(out_dir: Path, stem: str, traj: dict, query: dict,
     true = np.asarray(traj["true_classes"])
     probs = np.asarray(traj["pred_probs"])
 
-    fig, axes = plt.subplots(2, 1, figsize=(13, 8), gridspec_kw={"height_ratios": [2, 1.6]})
-    acc = traj.get("accuracy")
-    title = f"RUL trajectory — {cell_id}"
-    if reached_eol and acc is not None:
-        title += f"  ·  accuracy {acc:.1%}"
-    fig.suptitle(title, fontsize=13, fontweight="bold")
+    with plt.rc_context(_MODERN_RC):
+        fig, axes = plt.subplots(2, 1, figsize=(12.5, 7.6),
+                                 gridspec_kw={"height_ratios": [2, 1.5]})
+        acc = traj.get("accuracy")
+        title = f"RUL trajectory — {cell_id}"
+        if reached_eol and acc is not None:
+            title += f"   ·   accuracy {acc:.1%}"
+        fig.suptitle(title, fontsize=13.5, fontweight="bold", color="#1f2430")
 
-    ax = axes[0]
-    ax.step(cycles, true, where="post", color="#1565C0", lw=2.4, label="True class", zorder=3)
-    ax.step(cycles, pred, where="post", color="#E53935", lw=1.8, ls="--", label="Predicted class", zorder=4)
-    correct = pred == true
-    ax.fill_between(cycles, -0.4, N_CLASSES - 0.6, where=correct, alpha=0.08, color="green", step="post")
-    ax.fill_between(cycles, -0.4, N_CLASSES - 0.6, where=~correct, alpha=0.12, color="red", step="post")
-    ax.axvline(query["end_cycle"], color="#6A1B9A", lw=1.8, ls=":", label="Query cycle")
-    ax.set_yticks(range(N_CLASSES))
-    ax.set_yticklabels(CLASS_NAMES, fontsize=8.5)
-    ax.set_ylim(-0.4, N_CLASSES - 0.6)
-    ax.set_ylabel("RUL class")
-    ax.set_title("Predicted vs true RUL class over cycle life" if reached_eol
-                 else "Predicted RUL class over cycle life (true class is provisional — 80% EOL not reached)",
-                 fontsize=10)
-    ax.legend(fontsize=8.5, loc="upper right")
-    ax.grid(True, alpha=0.25)
+        ax = axes[0]
+        ax.set_axisbelow(True)
+        ax.grid(True, alpha=0.9)
+        correct = pred == true
+        ax.fill_between(cycles, -0.4, N_CLASSES - 0.6, where=correct, alpha=0.07, color="#2E7D32", step="post")
+        ax.fill_between(cycles, -0.4, N_CLASSES - 0.6, where=~correct, alpha=0.10, color="#C62828", step="post")
+        ax.step(cycles, true, where="post", color="#1565C0", lw=2.6, label="True class", zorder=3)
+        ax.step(cycles, pred, where="post", color="#E53935", lw=1.9, ls="--", label="Predicted", zorder=4)
+        ax.axvline(query["end_cycle"], color=_QUERY_LINE, lw=1.8, ls=":", label="Query cycle", zorder=5)
+        ax.set_yticks(range(N_CLASSES))
+        ax.set_yticklabels(CLASS_NAMES)
+        ax.set_ylim(-0.4, N_CLASSES - 0.6)
+        ax.set_ylabel("RUL class")
+        ax.set_title("Predicted vs true RUL class over cycle life" if reached_eol
+                     else "Predicted RUL class over cycle life  (true class provisional — 80% EOL not reached)",
+                     fontsize=10.5)
+        ax.legend(loc="upper right", ncol=3)
 
-    ax = axes[1]
-    for c in range(N_CLASSES):
-        ax.plot(cycles, probs[:, c], color=CLASS_COLORS[c], lw=1.5, label=CLASS_NAMES[c], alpha=0.85)
-    ax.axvline(query["end_cycle"], color="#6A1B9A", lw=1.6, ls=":")
-    ax.set_ylabel("Softmax probability")
-    ax.set_xlabel("Window end cycle")
-    ax.set_title("Predicted class probabilities", fontsize=10)
-    ax.legend(fontsize=8, ncol=N_CLASSES, loc="upper right")
-    ax.set_ylim(-0.05, 1.05)
-    ax.grid(True, alpha=0.25)
+        ax = axes[1]
+        ax.set_axisbelow(True)
+        ax.grid(True, alpha=0.9)
+        for c in range(N_CLASSES):
+            ax.plot(cycles, probs[:, c], color=CLASS_COLORS[c], lw=1.8, label=CLASS_NAMES[c], alpha=0.9)
+        ax.axvline(query["end_cycle"], color=_QUERY_LINE, lw=1.6, ls=":")
+        ax.set_ylabel("Softmax probability")
+        ax.set_xlabel("Window end cycle")
+        ax.set_title("Predicted class probabilities", fontsize=10.5)
+        ax.legend(ncol=N_CLASSES, loc="upper right")
+        ax.set_ylim(-0.05, 1.05)
 
-    fig.tight_layout(rect=(0, 0, 1, 0.97))
-    return _save_vectors(fig, out_dir / f"{stem}_rul_trajectory.png")
+        fig.tight_layout(rect=(0, 0, 1, 0.97))
+        return _save_vectors(fig, out_dir / f"{stem}_rul_trajectory.png")
 
 
 # ─────────────────────────────────────────────────────────────────────────── #

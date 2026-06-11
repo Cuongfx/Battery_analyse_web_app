@@ -187,6 +187,7 @@
     eg("rulResultsHead").innerHTML = "";
     eg("rulMetrics").innerHTML = "";
     eg("rulPlots").innerHTML = "";
+    eg("rulTrajPlot").innerHTML = "";
     eg("rulTable").innerHTML = "";
     eg("rulWarnings").hidden = true;
     eg("rulWarnings").innerHTML = "";
@@ -303,13 +304,11 @@
       warnEl.innerHTML = "";
     }
 
+    // Order: prediction plot → class probabilities → life-trajectory plot.
     const imgs = res.images || {};
-    eg("rulPlots").innerHTML = [
-      plotFigure("RUL prediction at query cycle", imgs.query, "RUL query prediction"),
-      plotFigure("Predicted RUL class over cycle life", imgs.trajectory, "RUL trajectory"),
-    ].join("");
-
+    eg("rulPlots").innerHTML = plotFigure("RUL prediction at query cycle", imgs.query, "RUL query prediction");
     eg("rulTable").innerHTML = renderProbTable(q.probs, q.pred_class, q.true_class);
+    eg("rulTrajPlot").innerHTML = plotFigure("Predicted RUL class over cycle life", imgs.trajectory, "RUL trajectory");
 
     if (res.out_dir) {
       eg("rulResultsHead").innerHTML += `<p class="ecm-saved-note">Saved to <code>${res.out_dir}</code></p>`;
@@ -351,6 +350,7 @@
       eg("rulMetrics").innerHTML = "";
       eg("rulPlots").innerHTML = "";
       eg("rulTable").innerHTML = "";
+      eg("rulTrajPlot").innerHTML = "";
     }
 
     const summary = eg("rulBatchSummary");
