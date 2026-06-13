@@ -1,0 +1,3 @@
+# README
+
+Combined NMC dataset — cells with a predominantly nickel-manganese-cobalt-oxide (NMC) positive electrode and a graphite negative electrode, aggregated from CALB (27, prismatic, 58 Ah), ISU-ILCC (240, Li-polymer pouch, 0.25 Ah), MICH (40, pouch NMC111), RWTH (48, 18650, 3 Ah), SDU (86, 18650, 2.4 Ah), SNL (21, 18650), Tongji (130, 18650) and XJTU (23, 18650, NMC532). Note that some cells are NCA or NCA-NMC blends (the Tongji cells, and part of SNL) rather than pure NMC. 615 cells total, spanning ambient working temperatures from 0 to 45 degrees Celsius (0, 15, 20, 25, 30, 35 and 45 degrees Celsius).

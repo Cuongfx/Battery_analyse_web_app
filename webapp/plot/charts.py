@@ -27,6 +27,19 @@ _TEMP_PATTERNS = (
     re.compile(r"(?:^|_)CY(-?\d+)[-_]", re.IGNORECASE),
 )
 
+# Datasets whose filenames do NOT encode a temperature: resolve the single
+# ambient temperature stated in each dataset's README, keyed by filename prefix.
+# Used only as a fallback after the filename patterns above fail to match —
+# important for the combined LFP/NMC folders where these sources are mixed in.
+_SOURCE_AMBIENT_TEMP: dict[str, int] = {
+    "MATR": 30,
+    "HUST": 30,
+    "ISU-ILCC": 30,
+    "RWTH": 25,
+    "SDU": 25,
+    "XJTU": 20,
+}
+
 
 def extract_temperature_from_name(name: str | None) -> int | None:
     """Extract test ambient temperature in °C from a battery .pkl filename.
@@ -38,7 +51,7 @@ def extract_temperature_from_name(name: str | None) -> int | None:
         MICH_02C_pouch_NMC_-5C_0-100_0.2-0.2C.pkl                 -> -5  (cell id "02C" ignored)
         MICH_MCForm39_pouch_NMC_45C_0-100_1-1C_x.pkl              -> 45  (C-rate "1-1C" ignored)
         Tongji1_CY25-025_1--1.pkl                                 -> 25  (C-rate "-025" ignored)
-        MATR_b1c0.pkl                                             -> None
+        MATR_b1c0.pkl                                             -> 30  (source-prefix fallback)
         CALCE_CS2_33.pkl                                          -> None
     """
     if not name:
@@ -54,6 +67,10 @@ def extract_temperature_from_name(name: str | None) -> int | None:
             continue
         if -30 <= t <= 80:
             return t
+    # Fallback: filename carries no temperature — resolve by dataset source prefix.
+    for prefix, temp in _SOURCE_AMBIENT_TEMP.items():
+        if base.startswith(prefix + "_"):
+            return temp
     return None
 
 from webapp.data_processing.battery_data import (
@@ -396,6 +413,35 @@ def _eol_cycle_from_qd(cycle_axis: Any, qd_values: Any, threshold: float = 0.8) 
     return int(cyc[below[0]])
 
 
+def _smooth_soh_series(values: Any) -> list[float]:
+    """Remove single-cycle spikes (median filter) then smooth (Savitzky-Golay).
+
+    Falls back to the raw values if SciPy is unavailable or the series is too short.
+    """
+    arr = np.asarray(values, dtype=float)
+    n = arr.size
+    if n < 5:
+        return [round(float(v), 4) for v in arr]
+    smoothed = arr
+    try:
+        from scipy.signal import medfilt, savgol_filter
+
+        # Median filter kills lone abnormal drops without shifting the trend.
+        med_k = 5 if n >= 5 else 3
+        if med_k % 2 == 0:
+            med_k -= 1
+        cleaned = medfilt(arr, kernel_size=med_k)
+
+        # Savitzky-Golay gives a smooth curve while preserving the fade shape.
+        win = min(11, n)
+        if win % 2 == 0:
+            win -= 1
+        smoothed = savgol_filter(cleaned, window_length=win, polyorder=2) if win >= 5 else cleaned
+    except Exception:
+        smoothed = arr
+    return [round(float(v), 4) for v in smoothed]
+
+
 def compute_cell_metrics(obj: dict[str, Any]) -> dict[str, Any]:
     """Extract Qd/Qc capacity and current metrics from a BatteryML object."""
     metrics: dict[str, Any] = {
@@ -403,6 +449,9 @@ def compute_cell_metrics(obj: dict[str, Any]) -> dict[str, Any]:
         "qc_max": None, "qc_min": None, "qc_fade_pct": None,
         "max_charge_current": None, "max_discharge_current": None,
         "eol_80_cycle": None,
+        # Per-cycle SOH lifespan series: SOH = Qd(cycle) / max(Qd over first 20 cycles).
+        # soh_values_smooth is the spike-removed + smoothed variant for the filter toggle.
+        "soh_cycles": None, "soh_values": None, "soh_values_smooth": None,
     }
 
     try:
@@ -413,6 +462,14 @@ def compute_cell_metrics(obj: dict[str, Any]) -> dict[str, Any]:
             if len(qd_vals) >= 2 and qd_vals[0] > 0:
                 metrics["qd_fade_pct"] = round(float((qd_vals[0] - qd_vals[-1]) / qd_vals[0] * 100), 2)
             metrics["eol_80_cycle"] = _eol_cycle_from_qd(cx_d, qd_vals, threshold=0.8)
+
+            # Reference capacity = max Qd over the first 20 available cycles.
+            q_ref = float(np.nanmax(qd_vals[: min(20, len(qd_vals))]))
+            if np.isfinite(q_ref) and q_ref > 0:
+                soh = qd_vals / q_ref
+                metrics["soh_cycles"] = [int(c) for c in cx_d]
+                metrics["soh_values"] = [round(float(s), 4) for s in soh]
+                metrics["soh_values_smooth"] = _smooth_soh_series(soh)
     except Exception:
         pass
 

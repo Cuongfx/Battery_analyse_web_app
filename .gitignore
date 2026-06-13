@@ -18,6 +18,7 @@ __pycache__/
 
 # Generated runtime cache
 webapp/cache/
+battery_ai_cache.json
 
 # Generated ECM results (extracted pulses, fitted parameters, plots)
 equiv-circ-model/Equivalent-Circuit/

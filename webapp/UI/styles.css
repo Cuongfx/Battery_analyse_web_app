@@ -806,6 +806,126 @@ button.btn-danger:hover {
   cursor: pointer;
 }
 
+.soh-file-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-right: auto;
+}
+
+.soh-smooth-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.soh-smooth-toggle input[type="checkbox"] {
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+/* File picker: sticky "All files" row above a scrollable list. */
+.soh-file-menu {
+  min-width: 200px;
+  padding-top: 0;
+}
+
+.soh-file-allrow {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  border-radius: 5px 5px 0 0;
+  margin: 0 0 0.15rem;
+  z-index: 1;
+}
+
+.soh-file-list {
+  max-height: 300px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+/* Gate: blur the lifespan plot behind a centered warning until accepted. */
+.soh-gate-wrap {
+  position: relative;
+}
+
+.soh-gate-wrap .chart-host.is-blurred {
+  filter: blur(6px);
+  pointer-events: none;
+  user-select: none;
+}
+
+.soh-gate {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 5;
+}
+
+.soh-gate-card {
+  max-width: 380px;
+  text-align: center;
+  padding: 1.3rem 1.5rem;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 30px rgba(16, 24, 40, 0.18);
+  backdrop-filter: blur(2px);
+}
+
+.soh-gate-icon {
+  font-size: 1.7rem;
+  line-height: 1;
+  margin-bottom: 0.5rem;
+}
+
+.soh-gate-title {
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 0.35rem;
+}
+
+.soh-gate-text {
+  margin: 0 0 1rem;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.soh-gate-accept {
+  min-height: 36px;
+  padding: 0.4rem 1.1rem;
+  border: 0;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 0.84rem;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.soh-gate-accept:hover {
+  background: var(--accent-strong, var(--accent));
+  transform: translateY(-1px);
+}
+
 .dataset-info-temp {
   margin: 0.45rem 0 0;
   font-size: 0.86rem;
@@ -1350,7 +1470,57 @@ button.btn-danger:hover {
 .axis-editor {
   border-top: 1px solid var(--border);
   background: var(--panel-soft);
-  padding: 0.8rem 0.9rem 0.9rem;
+}
+
+/* Collapsible header toggle */
+.axis-editor-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 0.6rem;
+  padding: 0.6rem 0.9rem;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.axis-editor-toggle:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.axis-editor-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.axis-editor-toggle-label svg {
+  color: var(--accent);
+}
+
+.axis-editor-caret {
+  font-size: 0.7rem;
+  transition: transform 0.2s ease;
+}
+
+.axis-editor:not(.is-collapsed) .axis-editor-caret {
+  transform: rotate(180deg);
+}
+
+.axis-editor.is-collapsed .axis-editor-body {
+  display: none;
+}
+
+.axis-editor-body {
+  padding: 0.2rem 0.9rem 0.95rem;
 }
 
 .axis-editor-head {
@@ -1358,7 +1528,7 @@ button.btn-danger:hover {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  margin-bottom: 0.7rem;
+  margin-bottom: 0.85rem;
 }
 
 .axis-editor-head button {
@@ -1369,21 +1539,21 @@ button.btn-danger:hover {
 
 .axis-rows {
   display: grid;
-  gap: 0.58rem;
+  gap: 0.5rem;
 }
 
 .axis-row {
   display: grid;
-  grid-template-columns: minmax(110px, 150px) minmax(160px, 210px) minmax(190px, 1fr);
-  gap: 0.58rem;
+  grid-template-columns: minmax(110px, 150px) minmax(150px, 200px) minmax(200px, 1fr);
+  gap: 0.7rem;
   align-items: center;
 }
 
 .axis-label {
   min-width: 0;
-  color: var(--muted);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.76rem;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1396,15 +1566,37 @@ button.btn-danger:hover {
 }
 
 .axis-fields input {
-  min-height: 34px;
-  padding: 0.38rem 0.5rem;
+  min-height: 32px;
+  padding: 0.34rem 0.5rem;
+  border-radius: 8px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.78rem;
+  font-size: 0.76rem;
+  text-align: center;
 }
 
+/* Dual-range slider: slim shared track with accent fill */
 .axis-slider {
   position: relative;
-  height: 30px;
+  height: 26px;
+}
+
+.axis-slider-track {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  top: 50%;
+  height: 4px;
+  transform: translateY(-50%);
+  border-radius: 99px;
+  background: var(--border-strong);
+}
+
+.axis-slider-fill {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 70%, #6ea8ff));
 }
 
 .axis-slider input[type="range"] {
@@ -1422,39 +1614,54 @@ button.btn-danger:hover {
 }
 
 .axis-slider input[type="range"]::-webkit-slider-runnable-track {
-  height: 5px;
+  height: 4px;
   border-radius: 99px;
-  background: var(--border-strong);
+  background: transparent;
 }
 
 .axis-slider input[type="range"]::-moz-range-track {
-  height: 5px;
+  height: 4px;
   border-radius: 99px;
-  background: var(--border-strong);
+  background: transparent;
 }
 
 .axis-slider input[type="range"]::-webkit-slider-thumb {
-  width: 16px;
-  height: 16px;
-  margin-top: -5.5px;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
   border: 2px solid #ffffff;
   border-radius: 99px;
   appearance: none;
   background: var(--accent);
-  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
-  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(37, 99, 235, 0.35);
+  cursor: grab;
   pointer-events: auto;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
 
 .axis-slider input[type="range"]::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   border: 2px solid #ffffff;
   border-radius: 99px;
   background: var(--accent);
-  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
-  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(37, 99, 235, 0.35);
+  cursor: grab;
   pointer-events: auto;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.axis-slider input[type="range"]:hover::-webkit-slider-thumb {
+  transform: scale(1.15);
+  box-shadow: 0 2px 7px rgba(37, 99, 235, 0.45);
+}
+
+.axis-slider input[type="range"]:active::-webkit-slider-thumb {
+  cursor: grabbing;
+}
+
+.axis-slider input[type="range"]:hover::-moz-range-thumb {
+  transform: scale(1.15);
 }
 
 @media (max-width: 1180px) {

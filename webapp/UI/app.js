@@ -745,6 +745,50 @@ function buildFolderFigure(rows, folderName) {
   };
 }
 
+// Lifespan overlay: SOH = Qd(cycle) / max(Qd over first 20 cycles), one line per file.
+function buildFolderSohFigure(rows, folderName) {
+  const valid = rows.filter(
+    (r) => Array.isArray(r.soh_cycles) && Array.isArray(r.soh_values) && r.soh_values.length,
+  );
+  if (!valid.length) return null;
+
+  // Raw + smoothed y arrays kept aligned with trace order so the filter toggle can swap them.
+  const names = valid.map((r) => r.name);
+  const raw = valid.map((r) => r.soh_values);
+  const smooth = valid.map((r) =>
+    Array.isArray(r.soh_values_smooth) && r.soh_values_smooth.length === r.soh_values.length
+      ? r.soh_values_smooth
+      : r.soh_values,
+  );
+
+  const traces = valid.map((r) => ({
+    type: "scattergl",
+    mode: "lines",
+    name: r.name,
+    x: r.soh_cycles,
+    y: r.soh_values,
+    line: { width: 1 },
+    hovertemplate: `File: ${escapeHtml(r.name)}<br>Cycle: %{x}<br>SOH: %{y:.3f}<extra></extra>`,
+  }));
+
+  return {
+    data: traces,
+    meta: { names, raw, smooth },
+    layout: {
+      title: { text: `Lifespan (SOH) per file - ${folderName}`, x: 0.02, xanchor: "left", font: { size: 15, color: "#111827" } },
+      height: 520,
+      margin: { t: 58, b: 58, l: 68, r: 28 },
+      paper_bgcolor: "#FFFFFF",
+      plot_bgcolor: "#F6F8FB",
+      font: { family: "DM Sans, Inter, system-ui, sans-serif", size: 12, color: "#172033" },
+      showlegend: false,
+      hovermode: "closest",
+      xaxis: { title: { text: "Cycle" }, gridcolor: "#E7ECF3", zerolinecolor: "#CDD6E3", linecolor: "#CDD6E3", ticks: "outside", tickcolor: "#CDD6E3" },
+      yaxis: { title: { text: "SOH (Qd / max Qd over first 20 cycles)" }, gridcolor: "#E7ECF3", zerolinecolor: "#CDD6E3", linecolor: "#CDD6E3", ticks: "outside", tickcolor: "#CDD6E3" },
+    },
+  };
+}
+
 // ── Pre-caching ────────────────────────────────────────────────────────────
 
 async function prefetchFolder(path) {
@@ -971,11 +1015,27 @@ async function startLoadAll() {
 // ── Dataset info ──────────────────────────────────────────────────────────
 
 // temps is already resolved by renderFolderInspection (filename or info-text fallback)
+// Resolve a folder's dataset-info text: exact key, then a boundary prefix match
+// so e.g. folder "ISU" picks up the "ISU_ILCC" README. Returns undefined if none.
+function resolveDatasetInfo(folderName) {
+  const di = state.datasetInfo || {};
+  const key = (folderName || "").replace(/-/g, "_");
+  const exact = di[key] || di[folderName] || di[key.toUpperCase()];
+  if (exact) return exact;
+  const candidates = Object.keys(di).filter(
+    (k) => k === key || k.startsWith(key + "_") || k.startsWith(key + "-"),
+  );
+  if (candidates.length) {
+    candidates.sort((a, b) => a.length - b.length);
+    return di[candidates[0]];
+  }
+  return undefined;
+}
+
 function renderDatasetInfo(folderName, temps = []) {
   const card = $("datasetInfoCard");
   if (!card) return;
-  const key = folderName.replace(/-/g, "_");
-  const info = state.datasetInfo[key] || state.datasetInfo[folderName] || state.datasetInfo[key.toUpperCase()];
+  const info = resolveDatasetInfo(folderName);
 
   if (!info) { card.hidden = true; return; }
   card.hidden = false;
@@ -1003,8 +1063,23 @@ async function inspectFolder(path) {
   _updateLogfeatFolderBanner();
 
   if (state.folderCache.has(path)) {
-    await renderFolderInspection(state.folderCache.get(path));
-    return;
+    const cached = state.folderCache.get(path);
+    const rows = cached.rows || [];
+    // Rows cached before the SOH feature lack the `soh_values` key entirely.
+    // Drop such stale entries so the folder re-reads once and gains the SOH chart.
+    const hasSohSchema =
+      rows.length === 0 ||
+      rows.some((r) => r && Object.prototype.hasOwnProperty.call(r, "soh_values"));
+    if (hasSohSchema) {
+      await renderFolderInspection(cached);
+      return;
+    }
+    state.folderCache.delete(path);
+    try {
+      const all = JSON.parse(localStorage.getItem(FOLDER_CACHE_LS_KEY) || "{}");
+      delete all[path];
+      localStorage.setItem(FOLDER_CACHE_LS_KEY, JSON.stringify(all));
+    } catch (_e) {}
   }
 
   renderFolderStats({ file_count: 0, valid_file_count: 0, failed_file_count: 0 });
@@ -1072,8 +1147,7 @@ async function renderFolderInspection(data) {
 
   // Resolve temperatures from the README prose so we can (a) fill the per-file
   // column when a filename carries no temperature and (b) show the stat box.
-  const key = folderName.replace(/-/g, "_");
-  const info = state.datasetInfo[key] || state.datasetInfo[folderName] || state.datasetInfo[key.toUpperCase()];
+  const info = resolveDatasetInfo(folderName);
   const infoTemps = extractTempFromInfoText(info);
   // Per-file fallback only when the dataset has a single ambient temperature —
   // multi-temperature datasets must come from the filename or stay unknown.
@@ -1169,6 +1243,181 @@ async function renderFolderInspection(data) {
       chart._eolBarIndex = null;
     }
   });
+
+  // Second card: lifespan (SOH) overlay, one line per file.
+  const sohFigure = buildFolderSohFigure(data.rows || [], folderName);
+  if (sohFigure) {
+    const sohTitle = figureTitle(sohFigure, "Lifespan (SOH) per file");
+    const sohChartId = `folder_soh_${Date.now()}`;
+    grid.insertAdjacentHTML("beforeend", plotCardMarkup(sohChartId, sohTitle));
+    const sohCard = grid.lastElementChild;
+    const sohChart = $(sohChartId);
+    await Plotly.newPlot(sohChart, sohFigure.data, sohFigure.layout, plotConfig);
+    themePlot(sohChart);
+    sohChart._sohMeta = sohFigure.meta;
+    state.charts.set(sohChartId, sohChart);
+    wirePlotCard(sohCard, sohChart, sohTitle);
+    wireSohFileControls(sohCard, sohChart);
+    buildAxisEditor(sohChart, sohCard.querySelector(".axis-editor"));
+    sohChart.on("plotly_relayout", () => syncAxisEditorValues(sohChart));
+
+    // Gate the plot when valid cells were skipped for lack of discharge-capacity data.
+    const cellRows = (data.rows || []).filter((r) => r.max_cycle != null);
+    const plotted = sohFigure.data.length;
+    const skipped = cellRows.length - plotted;
+    if (skipped > 0) gateSohPlot(sohChart, skipped, cellRows.length);
+  }
+}
+
+// Blur the SOH plot behind a centered warning until the user accepts.
+function gateSohPlot(chart, skipped, total) {
+  const wrap = document.createElement("div");
+  wrap.className = "soh-gate-wrap";
+  chart.parentNode.insertBefore(wrap, chart);
+  wrap.appendChild(chart);
+  chart.classList.add("is-blurred");
+  wrap.insertAdjacentHTML(
+    "beforeend",
+    `<div class="soh-gate">
+       <div class="soh-gate-card">
+         <div class="soh-gate-icon">⚠️</div>
+         <div class="soh-gate-title">Incomplete data</div>
+         <p class="soh-gate-text">${skipped} of ${total} cells have no usable discharge-capacity data and were left out. The lifespan plot may be incomplete.</p>
+         <button type="button" class="soh-gate-accept">Show plot anyway</button>
+       </div>
+     </div>`,
+  );
+  wrap.querySelector(".soh-gate-accept").addEventListener("click", () => {
+    chart.classList.remove("is-blurred");
+    const gate = wrap.querySelector(".soh-gate");
+    if (gate) gate.remove();
+    if (window.Plotly) Plotly.Plots.resize(chart);
+  });
+}
+
+// Lets the user plot all files or a chosen subset on the Lifespan (SOH) chart.
+let _sohOutsideClickHandler = null;
+
+function wireSohFileControls(card, chart) {
+  const names = (chart.data || []).map((t) => t.name);
+  chart._sohNames = names;
+  const meta = chart._sohMeta || { names, raw: chart.data.map((t) => t.y), smooth: chart.data.map((t) => t.y) };
+  const idx = names.map((_, i) => i);
+
+  const head = card.querySelector(".plot-card-head");
+  const controls = document.createElement("div");
+  controls.className = "soh-file-controls";
+  controls.innerHTML = `
+    <div class="sort-group" role="group" aria-label="File plotting mode">
+      <button type="button" class="sort-btn active" data-sohmode="all">All files</button>
+      <button type="button" class="sort-btn" data-sohmode="choose">Choose files</button>
+    </div>
+    <div class="temp-filter-wrap soh-file-wrap" hidden>
+      <button type="button" class="secondary small soh-file-btn">Files: All ▾</button>
+      <div class="temp-filter-menu soh-file-menu" hidden></div>
+    </div>
+    <label class="soh-smooth-toggle" title="Remove single-cycle spikes and smooth the curves">
+      <input type="checkbox" class="soh-smooth-cb"> Apply filter (smooth)
+    </label>
+  `;
+  head.insertBefore(controls, head.firstChild);
+
+  const wrap = controls.querySelector(".soh-file-wrap");
+  const menu = controls.querySelector(".soh-file-menu");
+  const fileBtn = controls.querySelector(".soh-file-btn");
+  const smoothCb = controls.querySelector(".soh-smooth-cb");
+
+  const setVisible = (selectedSet) => {
+    const vis = names.map((n) => selectedSet == null || selectedSet.has(n));
+    Plotly.restyle(chart, { visible: vis });
+  };
+
+  // Swap every trace's y between raw and smoothed series.
+  const applySmoothing = () => {
+    const ys = (smoothCb.checked ? meta.smooth : meta.raw).map((a) => a);
+    Plotly.restyle(chart, { y: ys }, idx);
+  };
+  smoothCb.addEventListener("change", applySmoothing);
+
+  const updateBtn = (selectedSet) => {
+    const k = selectedSet.size;
+    fileBtn.textContent =
+      k === names.length ? "Files: All ▾" : k === 0 ? "Files: None ▾" : `Files: ${k} ▾`;
+  };
+
+  let selected = new Set(names);
+
+  const syncSelectAll = () => {
+    const all = menu.querySelector('input[data-file-all]');
+    if (!all) return;
+    all.checked = selected.size === names.length;
+    all.indeterminate = selected.size > 0 && selected.size < names.length;
+  };
+
+  const buildMenu = () => {
+    menu.innerHTML =
+      `<label class="soh-file-allrow"><input type="checkbox" data-file-all checked> <strong>All files</strong></label>` +
+      `<div class="soh-file-list">` +
+      names
+        .map(
+          (n) =>
+            `<label><input type="checkbox" data-file="${escapeHtml(n)}" checked> ${escapeHtml(n)}</label>`,
+        )
+        .join("") +
+      `</div>`;
+
+    menu.querySelector('input[data-file-all]').addEventListener("change", (e) => {
+      const on = e.target.checked;
+      e.target.indeterminate = false;
+      selected = on ? new Set(names) : new Set();
+      menu.querySelectorAll('input[data-file]').forEach((cb) => { cb.checked = on; });
+      setVisible(selected);
+      updateBtn(selected);
+    });
+
+    menu.querySelectorAll('input[data-file]').forEach((cb) => {
+      cb.addEventListener("change", () => {
+        if (cb.checked) selected.add(cb.dataset.file);
+        else selected.delete(cb.dataset.file);
+        setVisible(selected);
+        updateBtn(selected);
+        syncSelectAll();
+      });
+    });
+  };
+
+  // Mode toggle: All files vs Choose files.
+  controls.querySelectorAll("[data-sohmode]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      controls.querySelectorAll("[data-sohmode]").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      if (btn.dataset.sohmode === "all") {
+        wrap.hidden = true;
+        menu.hidden = true;
+        setVisible(null);
+      } else {
+        // Choose mode always starts with every file ticked.
+        selected = new Set(names);
+        buildMenu();
+        updateBtn(selected);
+        setVisible(selected);
+        wrap.hidden = false;
+      }
+    });
+  });
+
+  fileBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    menu.hidden = !menu.hidden;
+  });
+
+  // Single shared outside-click handler (replace the previous card's).
+  if (_sohOutsideClickHandler) document.removeEventListener("click", _sohOutsideClickHandler);
+  _sohOutsideClickHandler = (e) => {
+    if (menu.hidden) return;
+    if (!wrap.contains(e.target)) menu.hidden = true;
+  };
+  document.addEventListener("click", _sohOutsideClickHandler);
 }
 
 function showBarDetail(panel, row) {
@@ -1984,12 +2233,21 @@ function plotCardMarkup(chartId, title) {
         </div>
       </div>
       <div class="chart-host" id="${escapeHtml(chartId)}"></div>
-      <div class="axis-editor">
-        <div class="axis-editor-head">
-          <div class="axis-heading">Range sliders</div>
-          <button type="button" class="secondary" data-axis-reset>Autoscale</button>
+      <div class="axis-editor is-collapsed">
+        <button type="button" class="axis-editor-toggle" data-axis-toggle aria-expanded="false">
+          <span class="axis-editor-toggle-label">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true"><path d="M2 4.5h7M11 4.5h2M2 10.5h2M6 10.5h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="10" cy="4.5" r="2" fill="currentColor"/><circle cx="5" cy="10.5" r="2" fill="currentColor"/></svg>
+            Adjust axes
+          </span>
+          <span class="axis-editor-caret" aria-hidden="true">▾</span>
+        </button>
+        <div class="axis-editor-body">
+          <div class="axis-editor-head">
+            <div class="axis-heading">Range sliders</div>
+            <button type="button" class="secondary" data-axis-reset>Autoscale</button>
+          </div>
+          <div class="axis-rows"></div>
         </div>
-        <div class="axis-rows"></div>
       </div>
     </article>
   `;
@@ -2012,6 +2270,19 @@ function wirePlotCard(card, chart, title) {
     await Plotly.relayout(chart, update);
     buildAxisEditor(chart, card.querySelector(".axis-editor"));
   });
+
+  const axisEditor = card.querySelector(".axis-editor");
+  const axisToggle = card.querySelector("[data-axis-toggle]");
+  if (axisToggle && axisEditor) {
+    axisToggle.addEventListener("click", () => {
+      const collapsed = axisEditor.classList.toggle("is-collapsed");
+      axisToggle.setAttribute("aria-expanded", String(!collapsed));
+      // Repaint slider fills/bubbles once visible (percentages need layout).
+      if (!collapsed) {
+        card.querySelectorAll(".axis-row").forEach((row) => paintAxisRow(row));
+      }
+    });
+  }
 }
 
 async function runWithButton(button, busyText, action) {
@@ -2107,11 +2378,33 @@ function axisRowMarkup(label, key, lo, hi, boundLo, boundHi, step) {
         <input type="text" data-role="max" aria-label="${escapeHtml(label)} maximum" value="${escapeHtml(fmtAxis(hi))}" />
       </div>
       <div class="axis-slider">
+        <div class="axis-slider-track"><div class="axis-slider-fill" data-role="fill"></div></div>
         <input type="range" data-role="slider-min" min="${boundLo}" max="${boundHi}" step="${step}" value="${lo}" />
         <input type="range" data-role="slider-max" min="${boundLo}" max="${boundHi}" step="${step}" value="${hi}" />
       </div>
     </div>
   `;
+}
+
+// Update the colored fill + value bubbles to match the two slider thumbs.
+function paintAxisRow(row) {
+  const minSlider = row.querySelector('[data-role="slider-min"]');
+  const maxSlider = row.querySelector('[data-role="slider-max"]');
+  if (!minSlider || !maxSlider) return;
+  const boundLo = Number(minSlider.min);
+  const boundHi = Number(minSlider.max);
+  const span = Math.max(boundHi - boundLo, 1e-9);
+  const a = Number(minSlider.value);
+  const b = Number(maxSlider.value);
+  const lo = Math.min(a, b);
+  const hi = Math.max(a, b);
+  const pLo = Math.max(0, Math.min(100, ((lo - boundLo) / span) * 100));
+  const pHi = Math.max(0, Math.min(100, ((hi - boundLo) / span) * 100));
+  const fill = row.querySelector('[data-role="fill"]');
+  if (fill) {
+    fill.style.left = `${pLo}%`;
+    fill.style.width = `${Math.max(0, pHi - pLo)}%`;
+  }
 }
 
 function wireAxisRow(chart, row, key) {
@@ -2136,6 +2429,7 @@ function wireAxisRow(chart, row, key) {
     if (a > b) [a, b] = [b, a];
     minInput.value = fmtAxis(a);
     maxInput.value = fmtAxis(b);
+    paintAxisRow(row);
     relayout(a, b);
   };
 
@@ -2149,6 +2443,8 @@ function wireAxisRow(chart, row, key) {
   });
   minSlider.addEventListener("input", applySliders);
   maxSlider.addEventListener("input", applySliders);
+
+  paintAxisRow(row);
 }
 
 function syncAxisEditorValues(chart) {
@@ -2163,6 +2459,7 @@ function syncAxisEditorValues(chart) {
     syncControl(row.querySelector('[data-role="max"]'), fmtAxis(hi));
     syncControl(row.querySelector('[data-role="slider-min"]'), lo);
     syncControl(row.querySelector('[data-role="slider-max"]'), hi);
+    paintAxisRow(row);
   });
 }
 

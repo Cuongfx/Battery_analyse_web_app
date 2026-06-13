@@ -553,8 +553,9 @@ async def clear_folder_cache(dir: str) -> dict[str, Any]:
 
 @app.get("/api/dataset-info")
 def api_dataset_info() -> dict[str, Any]:
-    """First-paragraph description for each dataset folder from DATA_info/*.md."""
-    return {"info": read_dataset_info(DATA_INFO_DIR)}
+    """First-paragraph description per dataset, from Data_Info/ then Raw/READMEs/."""
+    raw_readmes = PROJECT_ROOT / "Raw" / "READMEs"
+    return {"info": read_dataset_info(DATA_INFO_DIR, raw_readmes)}
 
 
 @app.get("/api/count-folder-files")

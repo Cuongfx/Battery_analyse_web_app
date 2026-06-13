@@ -71,6 +71,7 @@ def pkl_cycle_row(path: Path) -> dict[str, Any]:
         "max_discharge_current": None,
         "qd_max": None, "qd_min": None, "qd_fade_pct": None,
         "qc_max": None, "qc_min": None, "qc_fade_pct": None,
+        "soh_cycles": None, "soh_values": None, "soh_values_smooth": None,
         "error": None,
     }
     try:
@@ -105,6 +106,31 @@ def list_pkl_files(folder: Path) -> list[Path]:
     ]
 
 
+def _build_signature_index(folders: dict[str, Any]) -> dict[tuple[str, int, int], dict[str, Any]]:
+    """Index every cached row by (name, size, mtime_ns) across all folders, so a
+    file that reappears at a new path (remounted/moved) is reused without re-reading."""
+    index: dict[tuple[str, int, int], dict[str, Any]] = {}
+    for folder_cache in folders.values():
+        if not isinstance(folder_cache, dict):
+            continue
+        files = folder_cache.get("files")
+        if not isinstance(files, dict):
+            continue
+        for entry in files.values():
+            if not isinstance(entry, dict):
+                continue
+            row = entry.get("row")
+            size = entry.get("size")
+            mtime = entry.get("mtime_ns")
+            if not isinstance(row, dict) or size is None or mtime is None:
+                continue
+            name = row.get("name")
+            if name is None:
+                continue
+            index.setdefault((name, int(size), int(mtime)), row)
+    return index
+
+
 def folder_rows_from_cache(folder: Path, *, refresh: bool = False) -> tuple[list[dict[str, Any]], bool]:
     cache = load_cycle_cache()
     folders = cache.setdefault("folders", {})
@@ -116,6 +142,7 @@ def folder_rows_from_cache(folder: Path, *, refresh: bool = False) -> tuple[list
     next_files: dict[str, Any] = {}
     changed = refresh
     used_cache = True
+    sig_index: dict[tuple[str, int, int], dict[str, Any]] | None = None
 
     for path in list_pkl_files(folder):
         file_key = str(path)
@@ -124,9 +151,30 @@ def folder_rows_from_cache(folder: Path, *, refresh: bool = False) -> tuple[list
             row = dict(cached_file["row"])
             row["temperature_c"] = extract_temperature_from_name(path.name)
         else:
-            row = pkl_cycle_row(path)
-            used_cache = False
-            changed = True
+            # No exact path hit — try reusing an identical file cached under another
+            # path (same name/size/mtime) before falling back to a full read.
+            reused = None
+            if not refresh:
+                try:
+                    sig = file_signature(path)
+                    if sig_index is None:
+                        sig_index = _build_signature_index(folders)
+                    candidate = sig_index.get((path.name, sig["size"], sig["mtime_ns"]))
+                    if isinstance(candidate, dict):
+                        reused = dict(candidate)
+                        reused["path"] = str(path)
+                        reused["size"] = sig["size"]
+                        reused["mtime_ns"] = sig["mtime_ns"]
+                        reused["temperature_c"] = extract_temperature_from_name(path.name)
+                except OSError:
+                    reused = None
+            if reused is not None:
+                row = reused
+                changed = True  # persist the new path mapping (no file was read)
+            else:
+                row = pkl_cycle_row(path)
+                used_cache = False
+                changed = True
         rows.append(row)
         next_files[file_key] = {
             "size": row.get("size"),
