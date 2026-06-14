@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css?v=13" />
+  <link rel="stylesheet" href="/styles.css?v=23" />
 </head>
 <body data-mode="chooser">
   <header class="app-header">
@@ -94,6 +94,7 @@
           <button type="button" class="tab active" data-tab="general">General inspection</button>
           <button type="button" class="tab" data-tab="deep">Analyse</button>
           <button type="button" class="tab" data-tab="feature">Feature Analyse</button>
+          <button type="button" class="tab" data-tab="rawdata">Raw data analyse</button>
           <button type="button" class="tab" data-tab="summary">Data summary</button>
         </nav>
       </div>
@@ -185,6 +186,8 @@
               <option value="dvdq_time_both">dV/dQ vs time - charge + discharge</option>
               <option value="qcmax">Qcmax vs cycle</option>
               <option value="qdmax">Qdmax vs cycle</option>
+              <option value="current_vs_time">Current vs time</option>
+              <option value="voltage_vs_time">Voltage vs time</option>
             </select>
           </div>
           <div class="field cycle-field">
@@ -208,6 +211,10 @@
           <label class="check-field">
             <input type="checkbox" id="filterOutliers" disabled />
             <span>Filter</span>
+          </label>
+          <label class="check-field" id="showRawSignalsField" title="Also show the Current vs time and Voltage vs time companion plots above the selected metric">
+            <input type="checkbox" id="showRawSignals" disabled />
+            <span>Show I/V vs time</span>
           </label>
           <button type="button" id="genPlot" disabled>Generate plot</button>
         </div>
@@ -377,6 +384,35 @@
         <section class="summary-table-card">
           <div class="summary-table-wrap">
             <table class="summary-table" id="summaryTable"></table>
+          </div>
+        </section>
+      </section>
+
+      <section class="tab-panel" id="rawdataPanel" hidden>
+        <section class="plot-toolbar">
+          <div>
+            <h2>Raw data analyse</h2>
+            <p class="muted">Per-sample raw values for one cycle of the loaded file: time, current, voltage, charge capacity (Qc) and discharge capacity (Qd).</p>
+          </div>
+          <div class="plot-controls">
+            <div class="field">
+              <label for="rawCycle">Cycle index</label>
+              <input type="number" id="rawCycle" min="0" step="1" value="0" placeholder="0" disabled />
+            </div>
+            <button type="button" id="rawLoadBtn" disabled>Show cycle</button>
+            <button type="button" id="rawCsvBtn" class="secondary" disabled>Download CSV</button>
+          </div>
+          <span class="err" id="rawErr" hidden></span>
+        </section>
+
+        <section class="raw-meta muted" id="rawMeta" hidden></section>
+        <section class="raw-summary" id="rawSummary" hidden></section>
+        <section class="raw-tools" id="rawTools" hidden></section>
+
+        <section class="raw-table-card" id="rawTableCard">
+          <div class="empty-state">
+            <strong>No data yet</strong>
+            <span>Load a file, enter a cycle index, then click <em>Show cycle</em>.</span>
           </div>
         </section>
       </section>
@@ -738,7 +774,7 @@
   </div>
 
   <script src="/picker.js?v=1"></script>
-  <script src="/app.js?v=50"></script>
+  <script src="/app.js?v=62"></script>
   <script src="/ecm.js?v=9"></script>
   <script src="/ocv.js?v=3"></script>
   <script src="/rul.js?v=6"></script>

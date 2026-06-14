@@ -52,6 +52,11 @@ from webapp.data_processing.folder_cache import (
 from webapp.data_processing.inspection import compute_data_meta, summarize_batteryml_pkl
 from webapp.data_processing.dataset_info import read_dataset_info
 from webapp.data_processing.paths import allow_root, safe_resolve_dir, safe_resolve_pkl
+from webapp.data_processing.battery_data import (
+    _extract_cycle_number,
+    extract_raw_cycle_arrays,
+    get_cycle_data,
+)
 from webapp.data_processing.sessions import create_session, get_session
 from webapp.plot.charts import (
     build_feature_compare_figures,
@@ -424,6 +429,62 @@ def plot_session(session_id: str, body: PlotBody) -> JSONResponse:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return _plotly_response(figures)
+
+
+@app.get("/api/session/{session_id}/raw-cycle")
+def raw_cycle(session_id: str, cycle: int) -> dict[str, Any]:
+    """Per-sample raw arrays (time/current/voltage/Qc/Qd) for one cycle of the
+    loaded file. NaN/inf become null so the JSON stays valid; the UI renders them
+    as 'NaN'."""
+    import math
+
+    s = get_session(session_id)
+    try:
+        cycle_data = get_cycle_data(s["obj"])
+    except TypeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    n = len(cycle_data)
+    if n == 0:
+        raise HTTPException(status_code=400, detail="No cycle data in this file.")
+    if not (0 <= cycle < n):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cycle index {cycle} out of range (valid: 0..{n - 1}).",
+        )
+
+    # Highest cycle_number across the whole file (the cell's last cycle label).
+    max_cycle_number: int | None = None
+    for c in cycle_data:
+        cn = _extract_cycle_number(c)
+        if cn is not None:
+            max_cycle_number = cn if max_cycle_number is None else max(max_cycle_number, cn)
+
+    arrays = extract_raw_cycle_arrays(cycle_data[cycle])
+    length = max((arr.size for arr in arrays.values()), default=0)
+
+    def _column(name: str) -> list[float | None]:
+        arr = arrays[name]
+        out: list[float | None] = [None] * length
+        for i in range(min(arr.size, length)):
+            v = float(arr[i])
+            out[i] = None if (math.isnan(v) or math.isinf(v)) else v
+        return out
+
+    return {
+        "cycle": cycle,
+        "cycle_count": n,
+        "cycle_number": _extract_cycle_number(cycle_data[cycle]),
+        "max_cycle_number": max_cycle_number,
+        "length": length,
+        "columns": {
+            "time": _column("time_s"),
+            "current": _column("current_a"),
+            "voltage": _column("voltage_v"),
+            "qc": _column("qc_ah"),
+            "qd": _column("qd_ah"),
+        },
+    }
 
 
 @app.post("/api/session/{session_id}/feature-plot")

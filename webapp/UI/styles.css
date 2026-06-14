@@ -813,23 +813,8 @@ button.btn-danger:hover {
   margin-right: auto;
 }
 
-.soh-smooth-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin: 0;
-  font-size: 0.82rem;
-  font-weight: 500;
-  color: var(--text);
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.soh-smooth-toggle input[type="checkbox"] {
-  width: auto;
-  min-height: 0;
-  margin: 0;
-  cursor: pointer;
+.soh-filter-menu {
+  min-width: 210px;
 }
 
 /* File picker: sticky "All files" row above a scrollable list. */
@@ -906,6 +891,19 @@ button.btn-danger:hover {
   font-size: 0.84rem;
   line-height: 1.5;
   color: var(--muted);
+}
+
+.soh-gate-list {
+  margin: 0 0 1rem;
+  padding-left: 1.15rem;
+  text-align: left;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.soh-gate-list li + li {
+  margin-top: 0.4rem;
 }
 
 .soh-gate-accept {
@@ -1103,6 +1101,337 @@ button.btn-danger:hover {
 .table-error {
   color: var(--danger);
   font-weight: 700;
+}
+
+/* ── Raw data analyse ───────────────────────────────── */
+.raw-meta {
+  padding: 0 1rem 0.5rem;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.raw-meta-file {
+  color: var(--text);
+  font-weight: 700;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+/* Summary stat chips above the table, grouped into labeled sections */
+.raw-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 0 1rem 0.9rem;
+}
+
+.raw-summary-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.raw-summary-title {
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+}
+
+/* auto-fill keeps chip widths consistent across sections (no over-stretch) */
+.raw-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+  gap: 0.6rem;
+}
+
+.raw-stat {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.55rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.raw-stat-label {
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.raw-stat-value {
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.raw-stat-value em {
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-style: normal;
+  color: var(--muted);
+}
+
+/* Tools toolbar */
+.raw-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0 1rem 0.85rem;
+}
+
+.raw-tools-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 1.3rem;
+}
+
+.raw-tools-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.raw-tools-right { margin-left: auto; }
+
+.raw-tools-label {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.raw-chip {
+  min-height: unset;
+  padding: 0.28rem 0.62rem;
+  font-size: 0.76rem;
+  font-weight: 600;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+  line-height: 1.1;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+}
+
+.raw-chip em { font-style: normal; opacity: 0.7; font-size: 0.68rem; }
+.raw-chip:hover { border-color: var(--accent); color: var(--text); }
+
+.raw-chip.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.raw-chip[data-phase-dot]::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--phase-color, var(--muted));
+}
+
+.raw-chip[data-phase-dot="charge"] { --phase-color: #16a34a; }
+.raw-chip[data-phase-dot="rest"] { --phase-color: #94a3b8; }
+.raw-chip[data-phase-dot="discharge"] { --phase-color: #ea580c; }
+.raw-chip[data-coltoggle]:not(.is-active) { text-decoration: line-through; opacity: 0.55; }
+
+.raw-jump-input {
+  width: 90px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.78rem;
+}
+
+.raw-tools-help { font-size: 0.74rem; margin: 0; }
+
+/* Table card */
+.raw-table-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin: 0 1rem 1rem;
+  overflow: hidden;
+}
+
+.raw-table-wrap {
+  max-height: 62vh;
+  overflow: auto;
+}
+
+.raw-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+.raw-table th,
+.raw-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 0.38rem 0.75rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.raw-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-family: inherit;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 2px solid var(--border-strong);
+}
+
+.raw-table thead th[data-col]:hover {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+}
+
+/* sticky-left index column, holds the # and pin button.
+   width:1% + nowrap shrinks it to just fit its content. */
+.raw-table .raw-idx {
+  width: 1%;
+  text-align: center;
+  color: var(--muted);
+  background: var(--panel-soft);
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+
+.raw-table thead .raw-idx { z-index: 40; cursor: default; }
+
+.raw-table td.raw-idx {
+  white-space: nowrap;
+  text-align: center;
+}
+
+.raw-idx-num { vertical-align: middle; }
+
+.raw-pin {
+  min-height: unset;
+  padding: 0;
+  width: 16px;
+  height: 16px;
+  margin-left: 0.3rem;
+  line-height: 1;
+  font-size: 0.72rem;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+  filter: grayscale(1);
+  transition: opacity 0.1s;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.raw-table tbody tr:hover .raw-pin { opacity: 0.5; }
+.raw-pin:hover { opacity: 1 !important; }
+.raw-table tr.is-pinned .raw-pin { opacity: 1; filter: none; }
+
+/* zebra + hover */
+.raw-table tbody tr:nth-child(even) td { background: var(--panel-soft); }
+.raw-table tbody tr:hover td { background: var(--accent-soft); }
+
+/* phase indicator: colored left edge on the index cell */
+.raw-table tr.phase-charge td.raw-idx { box-shadow: inset 3px 0 0 #16a34a; }
+.raw-table tr.phase-rest td.raw-idx { box-shadow: inset 3px 0 0 #94a3b8; }
+.raw-table tr.phase-discharge td.raw-idx { box-shadow: inset 3px 0 0 #ea580c; }
+
+/* NaN cells stand out */
+.raw-table td.is-nan {
+  color: var(--danger);
+  font-style: italic;
+  background: rgba(217, 45, 32, 0.08);
+}
+
+/* column hide (root class set by the column toggle chips) */
+.raw-table.hide-col-time .col-time,
+.raw-table.hide-col-current .col-current,
+.raw-table.hide-col-voltage .col-voltage,
+.raw-table.hide-col-qc .col-qc,
+.raw-table.hide-col-qd .col-qd { display: none; }
+
+/* column highlight (root class set by clicking a header) */
+.raw-table.hl-col-time .col-time,
+.raw-table.hl-col-current .col-current,
+.raw-table.hl-col-voltage .col-voltage,
+.raw-table.hl-col-qc .col-qc,
+.raw-table.hl-col-qd .col-qd { background: rgba(245, 158, 11, 0.18); }
+
+.raw-table.hl-col-time thead .col-time,
+.raw-table.hl-col-current thead .col-current,
+.raw-table.hl-col-voltage thead .col-voltage,
+.raw-table.hl-col-qc thead .col-qc,
+.raw-table.hl-col-qd thead .col-qd {
+  background: rgba(245, 158, 11, 0.32);
+  color: var(--text);
+}
+
+/* row highlight (wins over zebra / column highlight) */
+.raw-table tbody tr.is-row-hl td { background: rgba(37, 99, 235, 0.16) !important; }
+.raw-table tbody tr.is-row-hl td.raw-idx { box-shadow: inset 3px 0 0 var(--accent); }
+
+/* phase filtering */
+.raw-table.hide-phase-charge tr.phase-charge,
+.raw-table.hide-phase-rest tr.phase-rest,
+.raw-table.hide-phase-discharge tr.phase-discharge { display: none; }
+
+/* pinned rows stick under the header; always visible regardless of phase filter.
+   z-index 20 keeps the whole pinned row (incl. its sticky-left index cell) above
+   normal rows' index cells (z-index 2) but below the header (z-index 30/40). */
+.raw-table tr.is-pinned {
+  position: sticky;
+  z-index: 20;
+  display: table-row !important;
+}
+
+.raw-table tr.is-pinned td {
+  background: var(--accent-soft) !important;
+  font-weight: 600;
+  border-bottom: 1px solid var(--accent);
+}
+
+/* feedback flashes */
+.raw-table td.just-copied {
+  background: #16a34a !important;
+  color: #fff !important;
+}
+
+.raw-table tr.just-jumped td { animation: rawJumpFlash 1.4s ease; }
+
+@keyframes rawJumpFlash {
+  0%, 100% { background: var(--panel); }
+  15% { background: rgba(37, 99, 235, 0.32); }
+}
+
+/* Collapsed plot card: hide chart body + axis editor, keep the header. */
+.plot-card.is-card-collapsed .chart-host,
+.plot-card.is-card-collapsed .axis-editor {
+  display: none;
 }
 
 .plot-toolbar {

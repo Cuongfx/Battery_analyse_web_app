@@ -7,6 +7,14 @@ from typing import Any, Callable
 
 import numpy as np
 
+from webapp.data_processing.inspection import (
+    _CURRENT_KEYS,
+    _QC_KEYS,
+    _QD_KEYS,
+    _TIME_KEYS,
+    _VOLTAGE_KEYS,
+)
+
 # Modern colour palette — categorical (files / subfolders)
 MODERN_COLORS: list[str] = [
     "#3A86FF",
@@ -116,6 +124,30 @@ def _extract_cycle_number(cycle: dict[str, Any]) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _resolve_cycle_array(cycle: dict[str, Any], keys: tuple[str, ...]) -> np.ndarray:
+    """Return the first present field among `keys` as a float array (NaN-padded on
+    failure). Field names vary by dataset, so resolve through the alias tuples."""
+    for key in keys:
+        if key in cycle and cycle[key] is not None:
+            return _as_float_array(cycle[key])
+    return np.array([], dtype=np.float64)
+
+
+def extract_raw_cycle_arrays(cycle: dict[str, Any]) -> dict[str, np.ndarray]:
+    """Raw per-sample arrays for one cycle: time / current / voltage / Qc / Qd.
+
+    Fields are resolved via the alias tuples in `inspection.py` (datasets differ).
+    Missing fields come back as empty arrays; NaN values are preserved as-is.
+    """
+    return {
+        "time_s": _resolve_cycle_array(cycle, _TIME_KEYS),
+        "current_a": _resolve_cycle_array(cycle, _CURRENT_KEYS),
+        "voltage_v": _resolve_cycle_array(cycle, _VOLTAGE_KEYS),
+        "qc_ah": _resolve_cycle_array(cycle, _QC_KEYS),
+        "qd_ah": _resolve_cycle_array(cycle, _QD_KEYS),
+    }
 
 
 def extract_discharge_series(cycle: dict[str, Any], cycle_idx: int) -> DischargeSeries | None:

@@ -15,6 +15,7 @@ const state = {
   currentRowsForFilter: [],  // rows for current folder, used when filter changes
   folderFallbackTemp: null,  // number | null — README ambient temp for files whose name has none (single-temp datasets only)
   activeSubTab: "general",   // active Data-Analyse sub-tab
+  rawData: null,             // last loaded raw-cycle payload (for CSV export)
 };
 
 const LAST_ROOT_KEY = "batteryAi.lastRootDir";
@@ -245,7 +246,9 @@ function setLoaded(on, name = "") {
 function enablePlotControls(enabled) {
   [
     "plotKind", "cycleMode", "cycles", "cycleFrom", "cycleTo", "cycleStep",
-    "genPlot", "filterOutliers",
+    "genPlot", "filterOutliers", "showRawSignals",
+    // Raw data analyse
+    "rawCycle", "rawLoadBtn",
     // Feature Analyse
     "featPlotKind", "featUseRefCycle", "featRefCycle", "featCycleMode", "featCycles",
     "featCycleFrom", "featCycleTo", "featCycleStep",
@@ -296,7 +299,7 @@ function readCycleSpec() { return readCycleSpecFor(""); }
 // ---- top-level mode (chooser / data / ecm) ---------------------------- //
 const MODE_KEY = "app.mode";
 const SUBTAB_KEY = "app.subtab";
-const DATA_SUBTABS = ["general", "deep", "feature", "summary"];
+const DATA_SUBTABS = ["general", "deep", "feature", "rawdata", "summary"];
 
 function setMode(mode) {
   document.body.setAttribute("data-mode", mode);
@@ -343,7 +346,7 @@ function setMode(mode) {
 }
 
 function panelId(name) {
-  return { general: "generalPanel", deep: "deepPanel", feature: "featurePanel", summary: "summaryPanel" }[name];
+  return { general: "generalPanel", deep: "deepPanel", feature: "featurePanel", rawdata: "rawdataPanel", summary: "summaryPanel" }[name];
 }
 
 function switchTab(name) {
@@ -358,6 +361,7 @@ function switchTab(name) {
     $(panelId(t)).classList.toggle("active", t === name);
   });
   if (name === "summary") renderDataSummary();
+  if (name === "rawdata") syncRawDataControls();
   setTimeout(() => {
     state.charts.forEach((chart) => Plotly.Plots.resize(chart));
   }, 0);
@@ -1261,28 +1265,47 @@ async function renderFolderInspection(data) {
     buildAxisEditor(sohChart, sohCard.querySelector(".axis-editor"));
     sohChart.on("plotly_relayout", () => syncAxisEditorValues(sohChart));
 
-    // Gate the plot when valid cells were skipped for lack of discharge-capacity data.
+    // Gate the plot behind a warning for data-quality issues.
     const cellRows = (data.rows || []).filter((r) => r.max_cycle != null);
     const plotted = sohFigure.data.length;
+    const warnings = [];
+
+    // 1) Cells skipped for lack of usable discharge-capacity data.
     const skipped = cellRows.length - plotted;
-    if (skipped > 0) gateSohPlot(sohChart, skipped, cellRows.length);
+    if (skipped > 0) {
+      warnings.push(`${skipped} of ${cellRows.length} cells have no usable discharge-capacity data and were left out — the plot may be incomplete.`);
+    }
+
+    // 2) Short-lifespan dataset: ≥50% of files have a maximum cycle below 300.
+    const SHORT_CYCLE = 300;
+    const shortCount = cellRows.filter((r) => r.max_cycle < SHORT_CYCLE).length;
+    if (cellRows.length > 0 && shortCount / cellRows.length >= 0.5) {
+      const pct = Math.round((shortCount / cellRows.length) * 100);
+      warnings.push(`${shortCount} of ${cellRows.length} cells (${pct}%) have fewer than ${SHORT_CYCLE} cycles — this dataset may be too short for reliable lifespan analysis.`);
+    }
+
+    if (warnings.length) gateSohPlot(sohChart, warnings);
   }
 }
 
-// Blur the SOH plot behind a centered warning until the user accepts.
-function gateSohPlot(chart, skipped, total) {
+// Blur the SOH plot behind a centered warning (one or more messages) until accepted.
+function gateSohPlot(chart, warnings) {
   const wrap = document.createElement("div");
   wrap.className = "soh-gate-wrap";
   chart.parentNode.insertBefore(wrap, chart);
   wrap.appendChild(chart);
   chart.classList.add("is-blurred");
+  const body =
+    warnings.length === 1
+      ? `<p class="soh-gate-text">${escapeHtml(warnings[0])}</p>`
+      : `<ul class="soh-gate-list">${warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>`;
   wrap.insertAdjacentHTML(
     "beforeend",
     `<div class="soh-gate">
        <div class="soh-gate-card">
          <div class="soh-gate-icon">⚠️</div>
-         <div class="soh-gate-title">Incomplete data</div>
-         <p class="soh-gate-text">${skipped} of ${total} cells have no usable discharge-capacity data and were left out. The lifespan plot may be incomplete.</p>
+         <div class="soh-gate-title">${warnings.length > 1 ? "Data warnings" : "Data warning"}</div>
+         ${body}
          <button type="button" class="soh-gate-accept">Show plot anyway</button>
        </div>
      </div>`,
@@ -1293,6 +1316,63 @@ function gateSohPlot(chart, skipped, total) {
     if (gate) gate.remove();
     if (window.Plotly) Plotly.Plots.resize(chart);
   });
+}
+
+// ── SOH curve filters (computed live in the browser from the raw series) ─────
+// Each takes a numeric array and returns a new array (never mutates the input).
+function _winMedian(y, w = 5) {
+  const h = (w - 1) >> 1;
+  const out = new Array(y.length);
+  for (let i = 0; i < y.length; i++) {
+    const a = [];
+    for (let j = Math.max(0, i - h); j <= Math.min(y.length - 1, i + h); j++) a.push(y[j]);
+    a.sort((p, q) => p - q);
+    out[i] = a[a.length >> 1];
+  }
+  return out;
+}
+function _winLowerEnv(y, w = 9) {
+  const h = (w - 1) >> 1;
+  const out = new Array(y.length);
+  for (let i = 0; i < y.length; i++) {
+    let m = Infinity;
+    for (let j = Math.max(0, i - h); j <= Math.min(y.length - 1, i + h); j++) if (y[j] < m) m = y[j];
+    out[i] = m;
+  }
+  return out;
+}
+function _monotonic(y) {
+  const out = new Array(y.length);
+  let m = Infinity;
+  for (let i = 0; i < y.length; i++) {
+    if (y[i] < m) m = y[i];
+    out[i] = m;
+  }
+  return out;
+}
+function _winMovAvg(y, w = 7) {
+  const h = (w - 1) >> 1;
+  const out = new Array(y.length);
+  for (let i = 0; i < y.length; i++) {
+    let s = 0, c = 0;
+    for (let j = Math.max(0, i - h); j <= Math.min(y.length - 1, i + h); j++) { s += y[j]; c++; }
+    out[i] = s / c;
+  }
+  return out;
+}
+// Fixed apply order regardless of tick order: de-spike → envelope → monotonic → smooth.
+const SOH_FILTER_PIPELINE = [
+  ["median", "Median de-spike", _winMedian],
+  ["lowerenv", "Lower envelope (min)", _winLowerEnv],
+  ["monotonic", "Monotonic (non-increasing)", _monotonic],
+  ["movavg", "Moving average", _winMovAvg],
+];
+function applySohFilterChain(y, active) {
+  let out = y;
+  for (const [key, , fn] of SOH_FILTER_PIPELINE) {
+    if (active.has(key)) out = fn(out);
+  }
+  return out;
 }
 
 // Lets the user plot all files or a chosen subset on the Lifespan (SOH) chart.
@@ -1316,28 +1396,48 @@ function wireSohFileControls(card, chart) {
       <button type="button" class="secondary small soh-file-btn">Files: All ▾</button>
       <div class="temp-filter-menu soh-file-menu" hidden></div>
     </div>
-    <label class="soh-smooth-toggle" title="Remove single-cycle spikes and smooth the curves">
-      <input type="checkbox" class="soh-smooth-cb"> Apply filter (smooth)
-    </label>
+    <div class="temp-filter-wrap soh-filter-wrap">
+      <button type="button" class="secondary small soh-filter-btn" title="Chain filters to clean the curves (de-spike, envelope, monotonic, smooth)">Filters: None ▾</button>
+      <div class="temp-filter-menu soh-filter-menu" hidden>
+        ${SOH_FILTER_PIPELINE.map(
+          ([key, label]) => `<label><input type="checkbox" data-filter="${key}"> ${escapeHtml(label)}</label>`,
+        ).join("")}
+      </div>
+    </div>
   `;
   head.insertBefore(controls, head.firstChild);
 
   const wrap = controls.querySelector(".soh-file-wrap");
   const menu = controls.querySelector(".soh-file-menu");
   const fileBtn = controls.querySelector(".soh-file-btn");
-  const smoothCb = controls.querySelector(".soh-smooth-cb");
+  const filterWrap = controls.querySelector(".soh-filter-wrap");
+  const filterMenu = controls.querySelector(".soh-filter-menu");
+  const filterBtn = controls.querySelector(".soh-filter-btn");
 
   const setVisible = (selectedSet) => {
     const vis = names.map((n) => selectedSet == null || selectedSet.has(n));
     Plotly.restyle(chart, { visible: vis });
   };
 
-  // Swap every trace's y between raw and smoothed series.
-  const applySmoothing = () => {
-    const ys = (smoothCb.checked ? meta.smooth : meta.raw).map((a) => a);
+  // Apply the selected filter chain (live, from the raw series) to every trace.
+  const activeFilters = new Set();
+  const applyFilters = () => {
+    const ys = meta.raw.map((arr) => (activeFilters.size ? applySohFilterChain(arr, activeFilters) : arr));
     Plotly.restyle(chart, { y: ys }, idx);
+    const k = activeFilters.size;
+    filterBtn.textContent = k === 0 ? "Filters: None ▾" : `Filters: ${k} ▾`;
   };
-  smoothCb.addEventListener("change", applySmoothing);
+  filterMenu.querySelectorAll("input[data-filter]").forEach((cb) => {
+    cb.addEventListener("change", () => {
+      if (cb.checked) activeFilters.add(cb.dataset.filter);
+      else activeFilters.delete(cb.dataset.filter);
+      applyFilters();
+    });
+  });
+  filterBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    filterMenu.hidden = !filterMenu.hidden;
+  });
 
   const updateBtn = (selectedSet) => {
     const k = selectedSet.size;
@@ -1411,11 +1511,12 @@ function wireSohFileControls(card, chart) {
     menu.hidden = !menu.hidden;
   });
 
-  // Single shared outside-click handler (replace the previous card's).
+  // Single shared outside-click handler (replace the previous card's): close any
+  // open SOH dropdown when the click lands outside it.
   if (_sohOutsideClickHandler) document.removeEventListener("click", _sohOutsideClickHandler);
   _sohOutsideClickHandler = (e) => {
-    if (menu.hidden) return;
-    if (!wrap.contains(e.target)) menu.hidden = true;
+    if (!menu.hidden && !wrap.contains(e.target)) menu.hidden = true;
+    if (!filterMenu.hidden && !filterWrap.contains(e.target)) filterMenu.hidden = true;
   };
   document.addEventListener("click", _sohOutsideClickHandler);
 }
@@ -1714,10 +1815,11 @@ async function loadPkl(path) {
 
   state.sessionId = data.session_id;
   state.loadedFileName = data.name;
+  state.rawData = null;
   setLoaded(true, data.name);
   renderMeta(data.meta);
   enablePlotControls(true);
-  refreshFeatPinButton();
+  syncRawDataControls();
   // Stay on whichever tab the user is currently on — don't force a switch.
 }
 
@@ -1845,6 +1947,10 @@ async function doPlot() {
 
   const kind = $("plotKind").value;
   const isCapacityPlot = kind === "qcmax" || kind === "qdmax";
+  // The metric kinds return Current/Voltage-vs-time companion plots; the dedicated
+  // raw-signal kinds *are* those plots, so never hide them.
+  const rawSignalKind = kind === "current_vs_time" || kind === "voltage_vs_time";
+  const hideCompanions = !rawSignalKind && !$("showRawSignals").checked;
   const body = {
     kind,
     cycles: isCapacityPlot ? null : readCycleSpec(),
@@ -1867,7 +1973,7 @@ async function doPlot() {
       showErr("plotErr", detail);
       return;
     }
-    await renderFigures(data.figures || []);
+    await renderFigures(data.figures || [], { hideCompanions });
   } catch (error) {
     showErr("plotErr", String(error));
   } finally {
@@ -2191,7 +2297,14 @@ function resetPlotGrid() {
   `;
 }
 
-async function renderFigures(figures) {
+// The "Current vs time" / "Voltage vs time" companion panels that accompany a
+// metric plot carry exactly these titles (no " - <cell>" suffix).
+function isCompanionFigureTitle(title) {
+  return title === "Current vs time" || title === "Voltage vs time";
+}
+
+async function renderFigures(figures, options = {}) {
+  const { hideCompanions = false } = options;
   const grid = $("plotGrid");
   state.charts.clear();
 
@@ -2210,7 +2323,8 @@ async function renderFigures(figures) {
     const figure = figures[index];
     const title = figureTitle(figure, `Plot ${index + 1}`);
     const chartId = `plot_${Date.now()}_${index}`;
-    grid.insertAdjacentHTML("beforeend", plotCardMarkup(chartId, title));
+    const companion = isCompanionFigureTitle(title);
+    grid.insertAdjacentHTML("beforeend", plotCardMarkup(chartId, title, { collapsible: true }));
     const card = grid.lastElementChild;
     const chart = $(chartId);
     await Plotly.newPlot(chart, figure.data, figure.layout, plotConfig);
@@ -2219,15 +2333,463 @@ async function renderFigures(figures) {
     wirePlotCard(card, chart, title);
     buildAxisEditor(chart, card.querySelector(".axis-editor"));
     chart.on("plotly_relayout", () => syncAxisEditorValues(chart));
+    // Hidden by default unless the user opted to show I/V vs time.
+    if (companion && hideCompanions) setCardCollapsed(card, true);
   }
 }
 
-function plotCardMarkup(chartId, title) {
+// Collapse/expand a plot card's body (chart + axis editor), updating the toggle.
+function setCardCollapsed(card, collapsed) {
+  card.classList.toggle("is-card-collapsed", collapsed);
+  const btn = card.querySelector("[data-card-collapse]");
+  if (btn) {
+    btn.textContent = collapsed ? "Show" : "Hide";
+    btn.setAttribute("aria-expanded", String(!collapsed));
+  }
+  if (!collapsed) {
+    const chart = card.querySelector(".chart-host");
+    if (chart && chart.data) setTimeout(() => Plotly.Plots.resize(chart), 0);
+  }
+}
+
+// ── Raw data analyse ─────────────────────────────────────────────────────
+// One column per quantity: API key, header label, unit, display decimal places.
+const RAW_COLUMNS = [
+  { key: "time", label: "Time (s)", unit: "s", dp: 3 },
+  { key: "current", label: "Current (A)", unit: "A", dp: 4 },
+  { key: "voltage", label: "Voltage (V)", unit: "V", dp: 4 },
+  { key: "qc", label: "Qc (Ah)", unit: "Ah", dp: 6 },
+  { key: "qd", label: "Qd (Ah)", unit: "Ah", dp: 6 },
+];
+
+// Current magnitude (A) below which a sample counts as "rest".
+const RAW_PHASE_EPS = 1e-3;
+const RAW_PHASES = [
+  { key: "charge", label: "Charge", hint: "I > 0" },
+  { key: "rest", label: "Rest", hint: "I ≈ 0" },
+  { key: "discharge", label: "Discharge", hint: "I < 0" },
+];
+
+function rawPhaseOf(current) {
+  const v = Number(current);
+  if (current === null || current === undefined || Number.isNaN(v)) return "rest";
+  if (v > RAW_PHASE_EPS) return "charge";
+  if (v < -RAW_PHASE_EPS) return "discharge";
+  return "rest";
+}
+
+function isNanCell(v) {
+  return v === null || v === undefined || Number.isNaN(Number(v));
+}
+
+function syncRawDataControls() {
+  const loaded = Boolean(state.sessionId);
+  ["rawCycle", "rawLoadBtn"].forEach((id) => { const el = $(id); if (el) el.disabled = !loaded; });
+  const csv = $("rawCsvBtn");
+  if (csv) csv.disabled = !state.rawData;
+  if (!loaded || !state.rawData) {
+    ["rawMeta", "rawSummary", "rawTools"].forEach((id) => { const el = $(id); if (el) el.hidden = true; });
+    $("rawTableCard").innerHTML = loaded
+      ? `<div class="empty-state"><strong>No data yet</strong><span>Enter a cycle index, then click <em>Show cycle</em>.</span></div>`
+      : `<div class="empty-state"><strong>No file loaded</strong><span>Load a .pkl file first, then enter a cycle index.</span></div>`;
+  }
+}
+
+async function loadRawCycle() {
+  showErr("rawErr", "");
+  if (!state.sessionId) { showErr("rawErr", "Load a file first."); return; }
+  const cycle = parseInt($("rawCycle").value, 10);
+  if (!Number.isInteger(cycle) || cycle < 0) { showErr("rawErr", "Enter a non-negative cycle index."); return; }
+
+  const btn = $("rawLoadBtn");
+  btn.disabled = true;
+  try {
+    const response = await fetch(`/api/session/${state.sessionId}/raw-cycle?cycle=${cycle}`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) { showErr("rawErr", data.detail || response.statusText); return; }
+    state.rawData = data;
+    renderRawTable(data);
+    $("rawCsvBtn").disabled = false;
+  } catch (error) {
+    showErr("rawErr", String(error));
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// Time span (last − first sample time, seconds) restricted to one phase.
+function rawPhaseSpan(cols, n, phaseKey) {
+  const time = cols.time || [];
+  const curr = cols.current || [];
+  let lo = Infinity, hi = -Infinity, found = false;
+  for (let i = 0; i < n; i += 1) {
+    if (rawPhaseOf(curr[i]) !== phaseKey) continue;
+    const t = Number(time[i]);
+    if (!Number.isFinite(t)) continue;
+    found = true;
+    if (t < lo) lo = t;
+    if (t > hi) hi = t;
+  }
+  return found ? hi - lo : NaN;
+}
+
+// Uniformity of a step series = fraction of steps within ±10% of the median.
+// Unit-independent, so Δt / ΔV / ΔQ can be compared directly.
+function rawUniformity(steps) {
+  const x = steps.map((v) => Math.abs(v)).filter(Number.isFinite);
+  if (x.length < 10) return { frac: 0, median: NaN, count: x.length };
+  const sorted = [...x].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  if (median <= 1e-9) return { frac: 0, median, count: x.length };
+  const within = x.filter((v) => Math.abs(v - median) <= 0.10 * median).length;
+  return { frac: within / x.length, median, count: x.length };
+}
+
+// Detect what a phase is sampled *on* — time (Δt), voltage (ΔV) or capacity (ΔQ).
+// Picks the most-uniform axis; time wins ties (it's degenerate with ΔQ during CC).
+// Falls back to "varies" for adaptive/irregular sampling (e.g. MATR).
+function rawPhaseSampling(cols, n, phaseKey) {
+  const time = cols.time || [];
+  const volt = cols.voltage || [];
+  const curr = cols.current || [];
+  const q = phaseKey === "charge" ? (cols.qc || []) : (cols.qd || []);
+  const dt = [], dv = [], dq = [];
+  for (let i = 0; i < n - 1; i += 1) {
+    if (rawPhaseOf(curr[i]) !== phaseKey || rawPhaseOf(curr[i + 1]) !== phaseKey) continue;
+    const t0 = Number(time[i]), t1 = Number(time[i + 1]);
+    if (Number.isFinite(t0) && Number.isFinite(t1)) dt.push(t1 - t0);
+    const v0 = Number(volt[i]), v1 = Number(volt[i + 1]);
+    if (Number.isFinite(v0) && Number.isFinite(v1)) dv.push((v1 - v0) * 1000);
+    const q0 = Number(q[i]), q1 = Number(q[i + 1]);
+    if (Number.isFinite(q0) && Number.isFinite(q1)) dq.push((q1 - q0) * 1000);
+  }
+  if (dt.length < 10) return { basis: "none", median: NaN, frac: 0 };
+  const tu = rawUniformity(dt);
+  const vu = rawUniformity(dv);
+  const qu = rawUniformity(dq);
+  if (tu.frac >= 0.6) return { basis: "time", median: tu.median, frac: tu.frac };
+  if (vu.frac >= 0.55) return { basis: "volt", median: vu.median, frac: vu.frac };
+  if (qu.frac >= 0.6) return { basis: "cap", median: qu.median, frac: qu.frac };
+  return { basis: "varies", median: tu.median, frac: tu.frac };
+}
+
+// Build a Phase-timing chip (label + value + unit + tooltip) for a phase's sampling.
+function rawSamplingChip(name, samp) {
+  if (!samp || samp.basis === "none") {
+    return { label: `${name} Δt`, value: "NaN", unit: "", title: "Not enough samples in this phase" };
+  }
+  const pct = `${Math.round(samp.frac * 100)}% of steps`;
+  if (samp.basis === "time") {
+    return { label: `${name} Δt`, value: samp.median.toFixed(2), unit: "s",
+      title: `Time-gridded · ${samp.median.toFixed(2)} s · ${pct}` };
+  }
+  if (samp.basis === "volt") {
+    return { label: `${name} ΔV`, value: samp.median.toFixed(1), unit: "mV",
+      title: `Voltage-gridded · ${samp.median.toFixed(1)} mV · ${pct}` };
+  }
+  if (samp.basis === "cap") {
+    return { label: `${name} ΔQ`, value: samp.median.toPrecision(3), unit: "mAh",
+      title: `Capacity-gridded · ${samp.median.toPrecision(3)} mAh · ${pct}` };
+  }
+  return { label: `${name} Δt`, value: `~${samp.median.toFixed(1)}`, unit: "s · varies",
+    title: `Irregular / adaptive sampling · median ${samp.median.toFixed(2)} s (no uniform Δt, ΔV or ΔQ)` };
+}
+
+// Min/max/duration summary for the current cycle, ignoring NaN.
+function computeRawSummary(cols, n) {
+  const finite = (key) => (cols[key] || []).filter((v) => !isNanCell(v)).map(Number);
+  const times = finite("time");
+  const curr = finite("current");
+  const qc = finite("qc");
+  const qd = finite("qd");
+  const span = times.length ? Math.max(...times) - Math.min(...times) : NaN;
+  return {
+    samples: n,
+    duration: span,
+    chargeDuration: rawPhaseSpan(cols, n, "charge"),
+    dischargeDuration: rawPhaseSpan(cols, n, "discharge"),
+    chargeSampling: rawPhaseSampling(cols, n, "charge"),
+    dischargeSampling: rawPhaseSampling(cols, n, "discharge"),
+    maxCurrent: curr.length ? Math.max(...curr) : NaN,
+    minCurrent: curr.length ? Math.min(...curr) : NaN,
+    maxQc: qc.length ? Math.max(...qc) : NaN,
+    maxQd: qd.length ? Math.max(...qd) : NaN,
+  };
+}
+
+function fmtStat(v, dp) {
+  return Number.isFinite(v) ? Number(v).toFixed(dp) : "NaN";
+}
+
+function renderRawSummary(cols, n, maxCycleNumber) {
+  const s = computeRawSummary(cols, n);
+  const card = (label, value, unit, title) =>
+    `<div class="raw-stat"${title ? ` title="${escapeHtml(title)}"` : ""}>` +
+    `<span class="raw-stat-label">${label}</span>` +
+    `<span class="raw-stat-value">${value}${unit ? ` <em>${unit}</em>` : ""}</span></div>`;
+  const section = (title, cards) =>
+    `<div class="raw-summary-section"><div class="raw-summary-title">${title}</div>` +
+    `<div class="raw-summary-grid">${cards}</div></div>`;
+  const cs = rawSamplingChip("Charge", s.chargeSampling);
+  const ds = rawSamplingChip("Discharge", s.dischargeSampling);
+  $("rawSummary").innerHTML =
+    section("Overview",
+      card("Max cycle (file)", maxCycleNumber != null ? String(maxCycleNumber) : "—", "") +
+      card("Samples", String(s.samples), "rows") +
+      card("Duration", fmtStat(s.duration, 1), "s")) +
+    section("Phase timing",
+      card("Charge time", fmtStat(s.chargeDuration, 1), "s") +
+      card("Discharge time", fmtStat(s.dischargeDuration, 1), "s") +
+      card(cs.label, cs.value, cs.unit, cs.title) +
+      card(ds.label, ds.value, ds.unit, ds.title)) +
+    section("Signals",
+      card("Max current", fmtStat(s.maxCurrent, 4), "A") +
+      card("Min current", fmtStat(s.minCurrent, 4), "A") +
+      card("Max Qc", fmtStat(s.maxQc, 6), "Ah") +
+      card("Max Qd", fmtStat(s.maxQd, 6), "Ah"));
+  $("rawSummary").hidden = false;
+}
+
+function renderRawTools(n) {
+  const phaseChips = RAW_PHASES.map((p) =>
+    `<button type="button" class="raw-chip is-active" data-phase="${p.key}" data-phase-dot="${p.key}">${p.label} <em>${p.hint}</em></button>`
+  ).join("");
+  const colChips = RAW_COLUMNS.map((c) =>
+    `<button type="button" class="raw-chip is-active" data-coltoggle="${c.key}">${escapeHtml(c.label)}</button>`
+  ).join("");
+  $("rawTools").innerHTML = `
+    <div class="raw-tools-row">
+      <div class="raw-tools-group"><span class="raw-tools-label">Show phase</span>${phaseChips}</div>
+      <div class="raw-tools-group"><span class="raw-tools-label">Columns</span>${colChips}</div>
+    </div>
+    <div class="raw-tools-row">
+      <div class="raw-tools-group">
+        <span class="raw-tools-label">Jump to #</span>
+        <input type="number" id="rawJump" class="raw-jump-input" min="0" max="${n - 1}" placeholder="0" />
+        <button type="button" class="secondary" id="rawJumpBtn">Go</button>
+      </div>
+      <div class="raw-tools-group raw-tools-right">
+        <button type="button" class="secondary" id="rawUnpinAll" hidden>Unpin all</button>
+        <button type="button" class="secondary" id="rawClearHl">Clear highlights</button>
+      </div>
+    </div>
+    <p class="raw-tools-help muted">Click a <strong>column header</strong> to highlight it · click a row's <strong>#</strong> to highlight the row · click any <strong>cell</strong> to copy its value · <strong>📌</strong> to pin a row to the top.</p>`;
+  $("rawTools").hidden = false;
+  wireRawTools();
+}
+
+function renderRawTable(data) {
+  const cols = data.columns || {};
+  const n = data.length || 0;
+  const meta = $("rawMeta");
+  meta.hidden = false;
+  const cnLabel = data.cycle_number != null ? ` (cycle_number ${data.cycle_number})` : "";
+  const fileName = state.loadedFileName || "—";
+  meta.innerHTML = `<strong class="raw-meta-file">${escapeHtml(fileName)}</strong>` +
+    ` · Cycle index ${data.cycle}${cnLabel} of ${data.cycle_count} · ${n} samples`;
+
+  // Fresh interaction state for this cycle.
+  state.rawUI = {
+    hlCols: new Set(),
+    hiddenCols: new Set(),
+    phases: { charge: true, rest: true, discharge: true },
+    pinned: [],
+  };
+
+  if (n === 0) {
+    $("rawSummary").hidden = true;
+    $("rawTools").hidden = true;
+    $("rawTableCard").innerHTML =
+      `<div class="empty-state"><strong>Empty cycle</strong><span>This cycle has no sample data.</span></div>`;
+    return;
+  }
+
+  renderRawSummary(cols, n, data.max_cycle_number);
+  renderRawTools(n);
+
+  const head = `<th class="raw-idx">#</th>` + RAW_COLUMNS.map((c) =>
+    `<th class="col-${c.key}" data-col="${c.key}" title="Click to highlight this column">${escapeHtml(c.label)}</th>`
+  ).join("");
+
+  const rows = new Array(n);
+  for (let i = 0; i < n; i += 1) {
+    const phase = rawPhaseOf((cols.current || [])[i]);
+    const cells = RAW_COLUMNS.map((c) => {
+      const v = (cols[c.key] || [])[i];
+      const nan = isNanCell(v);
+      return `<td class="col-${c.key}${nan ? " is-nan" : ""}">${nan ? "NaN" : Number(v).toFixed(c.dp)}</td>`;
+    }).join("");
+    rows[i] = `<tr data-r="${i}" class="phase-${phase}">` +
+      `<td class="raw-idx"><span class="raw-idx-num">${i}</span>` +
+      `<button type="button" class="raw-pin" title="Pin / unpin row" aria-label="Pin row">📌</button></td>` +
+      `${cells}</tr>`;
+  }
+
+  $("rawTableCard").innerHTML = `
+    <div class="raw-table-wrap" id="rawTableWrap">
+      <table class="raw-table" id="rawTable">
+        <thead><tr>${head}</tr></thead>
+        <tbody>${rows.join("")}</tbody>
+      </table>
+    </div>`;
+  wireRawTable();
+  applyRawClasses();
+}
+
+// Root-level classes drive column hide/highlight and phase filtering via CSS.
+function applyRawClasses() {
+  const table = $("rawTable");
+  if (!table || !state.rawUI) return;
+  const ui = state.rawUI;
+  const cls = ["raw-table"];
+  ui.hiddenCols.forEach((k) => cls.push(`hide-col-${k}`));
+  ui.hlCols.forEach((k) => cls.push(`hl-col-${k}`));
+  Object.entries(ui.phases).forEach(([k, on]) => { if (!on) cls.push(`hide-phase-${k}`); });
+  table.className = cls.join(" ");
+}
+
+function wireRawTools() {
+  $("rawTools").querySelectorAll("[data-phase]").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      const k = chip.dataset.phase;
+      state.rawUI.phases[k] = !state.rawUI.phases[k];
+      chip.classList.toggle("is-active", state.rawUI.phases[k]);
+      applyRawClasses();
+    });
+  });
+  $("rawTools").querySelectorAll("[data-coltoggle]").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      const k = chip.dataset.coltoggle;
+      if (state.rawUI.hiddenCols.has(k)) state.rawUI.hiddenCols.delete(k);
+      else state.rawUI.hiddenCols.add(k);
+      chip.classList.toggle("is-active", !state.rawUI.hiddenCols.has(k));
+      applyRawClasses();
+    });
+  });
+  const jump = () => rawJumpTo(parseInt($("rawJump").value, 10));
+  $("rawJumpBtn").addEventListener("click", jump);
+  $("rawJump").addEventListener("keydown", (e) => { if (e.key === "Enter") jump(); });
+  $("rawClearHl").addEventListener("click", clearRawHighlights);
+  $("rawUnpinAll").addEventListener("click", () => {
+    state.rawUI.pinned = [];
+    applyRawPins();
+  });
+}
+
+function wireRawTable() {
+  const table = $("rawTable");
+  table.addEventListener("click", (e) => {
+    const th = e.target.closest("th[data-col]");
+    if (th) { toggleRawColHl(th.dataset.col); return; }
+    const pin = e.target.closest(".raw-pin");
+    if (pin) { toggleRawPin(Number(pin.closest("tr").dataset.r)); return; }
+    const idxCell = e.target.closest("td.raw-idx");
+    if (idxCell) { idxCell.closest("tr").classList.toggle("is-row-hl"); return; }
+    const cell = e.target.closest("td");
+    if (cell) copyRawCell(cell);
+  });
+}
+
+function toggleRawColHl(key) {
+  const ui = state.rawUI;
+  if (ui.hlCols.has(key)) ui.hlCols.delete(key);
+  else ui.hlCols.add(key);
+  applyRawClasses();
+}
+
+function clearRawHighlights() {
+  state.rawUI.hlCols.clear();
+  $("rawTable").querySelectorAll("tr.is-row-hl").forEach((tr) => tr.classList.remove("is-row-hl"));
+  applyRawClasses();
+}
+
+function rawJumpTo(idx) {
+  if (!Number.isInteger(idx) || idx < 0) return;
+  const tr = $("rawTable").querySelector(`tr[data-r="${idx}"]`);
+  if (!tr) return;
+  tr.scrollIntoView({ block: "center", behavior: "smooth" });
+  tr.classList.add("just-jumped");
+  setTimeout(() => tr.classList.remove("just-jumped"), 1400);
+}
+
+async function copyRawCell(cell) {
+  const tr = cell.closest("tr");
+  const colIdx = cell.cellIndex - 1; // column 0 is the index cell
+  const col = RAW_COLUMNS[colIdx];
+  if (!col) return;
+  const raw = (state.rawData.columns[col.key] || [])[Number(tr.dataset.r)];
+  const text = isNanCell(raw) ? "NaN" : String(raw);
+  try { await navigator.clipboard.writeText(text); } catch (_) { /* clipboard may be blocked */ }
+  cell.classList.add("just-copied");
+  setTimeout(() => cell.classList.remove("just-copied"), 650);
+}
+
+// Reorder pinned rows to the top of the tbody and make them sticky under the header.
+function toggleRawPin(r) {
+  const pinned = state.rawUI.pinned;
+  const at = pinned.indexOf(r);
+  if (at >= 0) pinned.splice(at, 1);
+  else pinned.push(r);
+  applyRawPins();
+}
+
+function applyRawPins() {
+  const table = $("rawTable");
+  if (!table || !state.rawUI) return;
+  const tbody = table.tBodies[0];
+  const pinned = state.rawUI.pinned;
+  const rowsByR = new Map([...tbody.rows].map((tr) => [Number(tr.dataset.r), tr]));
+
+  rowsByR.forEach((tr, r) => tr.classList.toggle("is-pinned", pinned.includes(r)));
+
+  // DOM order: pinned (in pin order) first, then the rest in ascending sample index.
+  const rest = [...rowsByR.keys()].filter((r) => !pinned.includes(r)).sort((a, b) => a - b);
+  const frag = document.createDocumentFragment();
+  pinned.concat(rest).forEach((r) => frag.appendChild(rowsByR.get(r)));
+  tbody.appendChild(frag);
+
+  // Stack the sticky pinned rows just below the (sticky) header.
+  let top = table.tHead ? table.tHead.offsetHeight : 0;
+  pinned.forEach((r) => {
+    const tr = rowsByR.get(r);
+    tr.style.top = `${top}px`;
+    top += tr.offsetHeight;
+  });
+  rest.forEach((r) => { rowsByR.get(r).style.top = ""; });
+
+  const unpin = $("rawUnpinAll");
+  if (unpin) unpin.hidden = pinned.length === 0;
+}
+
+function downloadRawCsv() {
+  const data = state.rawData;
+  if (!data) return;
+  const cols = data.columns || {};
+  const n = data.length || 0;
+  const header = ["index"].concat(RAW_COLUMNS.map((c) => c.label));
+  const lines = [header.join(",")];
+  for (let i = 0; i < n; i += 1) {
+    const row = [i].concat(RAW_COLUMNS.map((c) => {
+      const v = (cols[c.key] || [])[i];
+      return (v === null || v === undefined) ? "NaN" : v;
+    }));
+    lines.push(row.join(","));
+  }
+  const base = (state.loadedFileName || "cycle").replace(/\.pkl$/i, "");
+  downloadBlob(new TextEncoder().encode(lines.join("\n")), `${base}_cycle${data.cycle}_raw.csv`, "text/csv");
+}
+
+function plotCardMarkup(chartId, title, options = {}) {
+  const { collapsible = false } = options;
+  const collapseBtn = collapsible
+    ? `<button type="button" class="secondary" data-card-collapse aria-expanded="true">Hide</button>`
+    : "";
   return `
     <article class="plot-card">
       <div class="plot-card-head">
         <h3>${escapeHtml(title)}</h3>
         <div class="plot-actions">
+          ${collapseBtn}
           <button type="button" class="secondary" data-export="svg">SVG</button>
           <button type="button" class="secondary" data-export="pdf">PDF</button>
         </div>
@@ -2254,6 +2816,12 @@ function plotCardMarkup(chartId, title) {
 }
 
 function wirePlotCard(card, chart, title) {
+  const collapseBtn = card.querySelector("[data-card-collapse]");
+  if (collapseBtn) {
+    collapseBtn.addEventListener("click", () => {
+      setCardCollapsed(card, !card.classList.contains("is-card-collapsed"));
+    });
+  }
   card.querySelector('[data-export="svg"]').addEventListener("click", (event) => {
     runWithButton(event.currentTarget, "Saving", () => downloadPlotSvg(chart, title))
       .catch((error) => showErr("plotErr", String(error)));
@@ -2600,6 +3168,10 @@ $("pickFolder").addEventListener("click", pickFolder);
 $("genPlot").addEventListener("click", doPlot);
 $("cycleMode").addEventListener("change", syncCycleMode);
 syncCycleMode();
+
+$("rawLoadBtn").addEventListener("click", loadRawCycle);
+$("rawCsvBtn").addEventListener("click", downloadRawCsv);
+$("rawCycle").addEventListener("keydown", (e) => { if (e.key === "Enter") loadRawCycle(); });
 
 $("featGenPlot").addEventListener("click", doFeaturePlot);
 $("featCycleMode").addEventListener("change", syncFeatCycleMode);

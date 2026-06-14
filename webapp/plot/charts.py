@@ -76,6 +76,7 @@ def extract_temperature_from_name(name: str | None) -> int | None:
 from webapp.data_processing.battery_data import (
     MODERN_COLORS,
     MetricCurve,
+    _extract_cycle_number,
     build_charge_metric_curves,
     build_dqdv_curve,
     build_dvdq_curve,
@@ -83,6 +84,7 @@ from webapp.data_processing.battery_data import (
     build_qd_vs_voltage_curve,
     compute_qcmax_by_cycle,
     compute_qdmax_by_cycle,
+    extract_raw_cycle_arrays,
     get_cycle_data,
     load_batteryml_pickle,
     parse_cycle_csv,
@@ -642,6 +644,43 @@ _FEATURE_EXTRA_SPECS: dict[str, tuple[bool, str, str, str, Callable[[float, floa
 _FEATURE_SPECS = {**_MULTI_SPECS, **_FEATURE_EXTRA_SPECS}
 
 
+def _build_raw_signal_curves(
+    obj: dict[str, Any], indices: list[int], y_field: str
+) -> list[MetricCurve]:
+    """One curve per selected cycle of a raw signal (full cycle) vs time.
+
+    `y_field` is 'current_a' or 'voltage_v'. The signal is carried in metric_y so
+    it can be drawn by `_multi_line_panel` against metric_x = time.
+    """
+    cycle_data = get_cycle_data(obj)
+    curves: list[MetricCurve] = []
+    for idx in indices:
+        if not (0 <= idx < len(cycle_data)):
+            continue
+        cycle = cycle_data[idx]
+        arrays = extract_raw_cycle_arrays(cycle)
+        t = arrays["time_s"]
+        y = arrays[y_field]
+        n = min(t.size, y.size)
+        if n < 1:
+            continue
+        t, y = t[:n], y[:n]
+        mask = np.isfinite(t) & np.isfinite(y)
+        if int(np.count_nonzero(mask)) < 1:
+            continue
+        t, y = t[mask], y[mask]
+        curves.append(MetricCurve(
+            cycle_idx=idx,
+            cycle_number=_extract_cycle_number(cycle),
+            time_s=t,
+            current_a=arrays["current_a"],
+            voltage_v=arrays["voltage_v"],
+            metric_x=t,
+            metric_y=y,
+        ))
+    return curves
+
+
 def build_figures_for_kind(
     obj: dict[str, Any],
     *,
@@ -654,6 +693,21 @@ def build_figures_for_kind(
 ) -> list[go.Figure]:
     cycle_data = get_cycle_data(obj)
     indices = resolve_cycles(len(cycle_data), cycles)
+
+    if kind in ("current_vs_time", "voltage_vs_time"):
+        if kind == "current_vs_time":
+            y_field, title, ylabel, palette = "current_a", "Current vs time", "Current (A)", "blue"
+        else:
+            y_field, title, ylabel, palette = "voltage_v", "Voltage vs time", "Voltage (V)", "red"
+        curves = _build_raw_signal_curves(obj, indices, y_field)
+        if not curves:
+            raise ValueError("No cycle data available for the selected cycles.")
+        fig = _multi_line_panel(
+            f"{title} - {cell_name}", "Time (s)", ylabel,
+            curves, "metric_x", "metric_y",
+            filter_outliers=filter_outliers, palette=palette,
+        )
+        return [fig]
 
     if kind in _FEATURE_SPECS:
         charge, title, xlabel, ylabel, make_fn = _FEATURE_SPECS[kind]
